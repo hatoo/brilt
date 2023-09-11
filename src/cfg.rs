@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bril_rs::{Code, EffectOps, Instruction};
 
@@ -11,8 +11,8 @@ pub enum Label {
 #[derive(Default, Debug)]
 pub struct Cfg {
     block_map: HashMap<Label, Vec<Code>>,
-    successors: HashMap<Label, Vec<Label>>,
-    predecessors: HashMap<Label, Vec<Label>>,
+    successors: HashMap<Label, HashSet<Label>>,
+    predecessors: HashMap<Label, HashSet<Label>>,
 }
 
 impl Cfg {
@@ -38,11 +38,11 @@ impl Cfg {
                                 cfg.successors
                                     .entry(label.clone())
                                     .or_default()
-                                    .push(Label::Label(labels[0].clone()));
+                                    .insert(Label::Label(labels[0].clone()));
                                 cfg.predecessors
                                     .entry(Label::Label(labels[0].clone()))
                                     .or_default()
-                                    .push(label.clone());
+                                    .insert(label.clone());
                             }
                             current_state = None;
                         }
@@ -54,19 +54,19 @@ impl Cfg {
                                 cfg.successors
                                     .entry(label.clone())
                                     .or_default()
-                                    .push(Label::Label(labels[0].clone()));
+                                    .insert(Label::Label(labels[0].clone()));
                                 cfg.successors
                                     .entry(label.clone())
                                     .or_default()
-                                    .push(Label::Label(labels[1].clone()));
+                                    .insert(Label::Label(labels[1].clone()));
                                 cfg.predecessors
                                     .entry(Label::Label(labels[0].clone()))
                                     .or_default()
-                                    .push(label.clone());
+                                    .insert(label.clone());
                                 cfg.predecessors
                                     .entry(Label::Label(labels[1].clone()))
                                     .or_default()
-                                    .push(label.clone());
+                                    .insert(label.clone());
                             }
                             current_state = None;
                         }
