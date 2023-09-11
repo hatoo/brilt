@@ -71,6 +71,14 @@ impl Cfg {
                             current_state = None;
                         }
 
+                        EffectOps::Return => {
+                            if let Some((label, mut block)) = current_state {
+                                block.push(code.clone());
+                                cfg.block_map.insert(label, block);
+                            }
+                            current_state = None;
+                        }
+
                         _ => {
                             if let Some((_, block)) = &mut current_state {
                                 block.push(code.clone());
