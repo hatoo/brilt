@@ -8,6 +8,99 @@ pub enum Label {
     Label(String),
 }
 
+#[derive(Debug)]
+pub enum StructuredCfg {
+    // terminates with jmp or br or ret
+    Block(Vec<Code>),
+    // terminates with jmp or br or ret
+    Linear(Vec<StructuredCfg>),
+    // terminates with jmp (implicit)
+    Branch {
+        cond_value: String,
+        then_block: Box<StructuredCfg>,
+        else_block: Box<StructuredCfg>,
+    },
+    // terminates with jmp (implicit)
+    Loop {
+        cond_value: String,
+        body_block: Box<StructuredCfg>,
+    },
+}
+
+#[derive(Default, Debug)]
+struct StructuredCfgBuilder {
+    block_map: HashMap<Label, StructuredCfg>,
+    successors: HashMap<Label, HashSet<Label>>,
+    predecessors: HashMap<Label, HashSet<Label>>,
+}
+
+impl StructuredCfg {
+    fn remove_terminator(&mut self) {
+        match self {
+            StructuredCfg::Block(block) => {
+                block.pop();
+            }
+            StructuredCfg::Linear(blocks) => {
+                blocks.last_mut().unwrap().remove_terminator();
+            }
+            StructuredCfg::Branch { .. } => {}
+            StructuredCfg::Loop { .. } => {}
+        }
+    }
+}
+
+impl StructuredCfgBuilder {
+    fn merge(&mut self, left: Label, right: Label) {
+        let mut left_body = self.block_map.remove(&left).unwrap();
+        let right_body = self.block_map.remove(&right).unwrap();
+
+        left_body.remove_terminator();
+
+        // flatten later
+        let new_body = StructuredCfg::Linear(vec![left_body, right_body]);
+
+        self.block_map.insert(left.clone(), new_body);
+        self.predecessors.remove(&right);
+
+        if let Some(succ) = self.successors.remove(&right) {
+            self.successors.insert(left, succ);
+        } else {
+            self.successors.remove(&left);
+        }
+    }
+
+    fn merge_linear(&mut self) -> bool {
+        let mut changed = false;
+
+        let labels = self.block_map.keys().cloned().collect::<Vec<_>>();
+
+        for label in labels {
+            if !self.block_map.contains_key(&label) {
+                continue;
+            }
+
+            let Some(succ) = self.successors.get(&label) else {
+                continue;
+            };
+
+            if succ.len() != 1 {
+                continue;
+            }
+
+            let succ = succ.iter().next().unwrap().clone();
+
+            if self.predecessors[&succ].len() != 1 {
+                continue;
+            }
+
+            self.merge(label, succ);
+            changed = true;
+        }
+
+        changed
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Cfg {
     block_map: HashMap<Label, Vec<Code>>,
