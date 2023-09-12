@@ -100,4 +100,18 @@ impl Cfg {
 
         cfg
     }
+
+    pub fn flatten(&self) -> Vec<Code> {
+        let mut codes = self.block_map[&Label::Root].clone();
+
+        for (_, block) in self
+            .block_map
+            .iter()
+            .filter(|(label, _)| label != &&Label::Root)
+        {
+            codes.extend(block.iter().cloned());
+        }
+
+        codes
+    }
 }
