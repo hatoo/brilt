@@ -156,7 +156,7 @@ impl Cfg {
             body.pop();
             body.extend(succ_body);
 
-            let succ_succ = self.successors.remove(&succ).unwrap();
+            let succ_succ = self.successors.remove(&succ).unwrap_or_default();
             self.successors.insert(label.clone(), succ_succ);
             self.predecessors.remove(&succ);
             changed = true;
@@ -190,7 +190,10 @@ mod test {
 
     #[test]
     fn test_cfg_reconstruct() {
-        for entry in glob("bril/examples/test/df/*.bril").unwrap() {
+        for entry in glob("bril/examples/test/df/*.bril")
+            .unwrap()
+            .chain(glob("tests/*.bril").unwrap())
+        {
             let path = entry.unwrap();
             let src = std::fs::read_to_string(&path).unwrap();
             let json_before = bril2json(src.as_str());

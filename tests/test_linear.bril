@@ -1,0 +1,18 @@
+@main {
+    jmp .end;
+    .middle:
+    jmp .m1;
+    .m1:
+    f : int = const 5;
+    print f;
+    ret;
+    .end:
+    jmp .end1;
+    .end1:
+    jmp .end2;
+    .end2:
+    jmp .end_final;
+    .end_final:
+    v : int = const 42;
+    print v;
+}
