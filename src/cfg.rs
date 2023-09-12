@@ -24,10 +24,16 @@ impl Cfg {
         for code in codes {
             match code {
                 Code::Label { label } => {
-                    if let Some((label, block)) = current_state {
-                        cfg.block_map.insert(label, block);
+                    if let Some((current_label, mut block)) = current_state {
+                        block.push(Code::Instruction(Instruction::Effect {
+                            args: Vec::new(),
+                            funcs: Vec::new(),
+                            labels: vec![label.clone()],
+                            op: EffectOps::Jump,
+                        }));
+                        cfg.block_map.insert(current_label, block);
                     }
-                    current_state = Some((Label::Label(label.clone()), Vec::new()));
+                    current_state = Some((Label::Label(label.clone()), vec![code.clone()]));
                 }
                 Code::Instruction(inst) => match inst {
                     Instruction::Effect { labels, op, .. } => match op {
@@ -94,7 +100,27 @@ impl Cfg {
             }
         }
 
-        if let Some((label, block)) = current_state {
+        if let Some((label, mut block)) = current_state {
+            if block
+                .last()
+                .map(|code| {
+                    !matches!(
+                        code,
+                        Code::Instruction(Instruction::Effect {
+                            op: EffectOps::Return,
+                            ..
+                        })
+                    )
+                })
+                .unwrap_or(false)
+            {
+                block.push(Code::Instruction(Instruction::Effect {
+                    args: Vec::new(),
+                    funcs: Vec::new(),
+                    labels: Vec::new(),
+                    op: EffectOps::Return,
+                }));
+            }
             cfg.block_map.insert(label, block);
         }
 
@@ -113,5 +139,36 @@ impl Cfg {
         }
 
         codes
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::io::Cursor;
+
+    use super::*;
+    use crate::test::{bril2json, brili};
+    use glob::glob;
+
+    #[test]
+    fn test_cfg_reconstruct() {
+        for entry in glob("bril/examples/test/df/*.bril").unwrap() {
+            let path = entry.unwrap();
+            let src = std::fs::read_to_string(&path).unwrap();
+            let json_before = bril2json(src.as_str());
+            let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
+
+            for function in &mut program.functions {
+                let cfg = Cfg::new(&function.instrs);
+                let codes = cfg.flatten();
+                function.instrs = codes;
+            }
+
+            let json_after = serde_json::to_string_pretty(&program).unwrap();
+
+            println!("checking {} ... ", path.to_str().unwrap());
+            println!("after: {}", &json_after);
+            assert_eq!(brili(&json_before).0, brili(&json_after).0);
+        }
     }
 }
