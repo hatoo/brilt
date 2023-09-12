@@ -127,6 +127,44 @@ impl Cfg {
         cfg
     }
 
+    pub fn merge_liner(&mut self) -> bool {
+        let mut changed = false;
+
+        let labels = self.block_map.keys().cloned().collect::<Vec<_>>();
+
+        for label in labels {
+            if !self.block_map.contains_key(&label) {
+                continue;
+            }
+
+            let Some(succ) = self.successors.get(&label) else {
+                continue;
+            };
+
+            if succ.len() != 1 {
+                continue;
+            }
+
+            let succ = succ.iter().next().unwrap().clone();
+
+            if self.predecessors[&succ].len() != 1 {
+                continue;
+            }
+
+            let succ_body = self.block_map.remove(&succ).unwrap();
+            let body = self.block_map.get_mut(&label).unwrap();
+            body.pop();
+            body.extend(succ_body);
+
+            let succ_succ = self.successors.remove(&succ).unwrap();
+            self.successors.insert(label.clone(), succ_succ);
+            self.predecessors.remove(&succ);
+            changed = true;
+        }
+
+        changed
+    }
+
     pub fn flatten(&self) -> Vec<Code> {
         let mut codes = self.block_map[&Label::Root].clone();
 
@@ -159,7 +197,8 @@ mod test {
             let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
 
             for function in &mut program.functions {
-                let cfg = Cfg::new(&function.instrs);
+                let mut cfg = Cfg::new(&function.instrs);
+                while cfg.merge_liner() {}
                 let codes = cfg.flatten();
                 function.instrs = codes;
             }
@@ -167,7 +206,7 @@ mod test {
             let json_after = serde_json::to_string_pretty(&program).unwrap();
 
             println!("checking {} ... ", path.to_str().unwrap());
-            println!("after: {}", &json_after);
+            // println!("after: {}", &json_after);
             assert_eq!(brili(&json_before).0, brili(&json_after).0);
         }
     }
