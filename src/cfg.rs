@@ -127,7 +127,7 @@ impl Cfg {
         cfg
     }
 
-    pub fn merge_liner(&mut self) -> bool {
+    pub fn merge_linear(&mut self) -> bool {
         let mut changed = false;
 
         let labels = self.block_map.keys().cloned().collect::<Vec<_>>();
@@ -201,7 +201,7 @@ mod test {
 
             for function in &mut program.functions {
                 let mut cfg = Cfg::new(&function.instrs);
-                while cfg.merge_liner() {}
+                while cfg.merge_linear() {}
                 let codes = cfg.flatten();
                 function.instrs = codes;
             }
