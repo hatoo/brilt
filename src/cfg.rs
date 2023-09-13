@@ -535,7 +535,13 @@ impl Cfg {
             block_map: self
                 .block_map
                 .into_iter()
-                .map(|(k, v)| (k, StructuredCfg::Block(v)))
+                .map(|(k, mut v)| {
+                    if matches!(v.first(), Some(Code::Label { .. })) {
+                        v.remove(0);
+                    }
+
+                    (k, StructuredCfg::Block(v))
+                })
                 .collect(),
             successors: self.successors,
             predecessors: self.predecessors,
