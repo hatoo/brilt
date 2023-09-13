@@ -1,6 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use bril_rs::{Code, EffectOps, Instruction};
+use petgraph::{
+    graph::NodeIndex,
+    prelude::DiGraph,
+    visit::{EdgeRef, IntoEdges, IntoEdgesDirected},
+    Graph,
+};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
 pub enum Label {
@@ -9,9 +15,16 @@ pub enum Label {
 }
 
 #[derive(Debug, Clone)]
+pub enum Terminator {
+    Ret(Option<String>),
+    Jmp(NodeIndex),
+    Br(String, NodeIndex, NodeIndex),
+}
+
+#[derive(Debug, Clone)]
 pub enum StructuredCfg {
     // terminates with jmp or br or ret
-    Block(Vec<Code>),
+    Block(Vec<Code>, Option<Terminator>),
     // terminates with jmp or br or ret
     Linear(Vec<StructuredCfg>),
     // terminates with jmp (implicit)
@@ -29,60 +42,22 @@ pub enum StructuredCfg {
 
 #[derive(Default, Debug)]
 struct StructuredCfgBuilder {
-    block_map: HashMap<Label, StructuredCfg>,
-    successors: HashMap<Label, HashSet<Label>>,
-    predecessors: HashMap<Label, HashSet<Label>>,
+    graph: Graph<StructuredCfg, ()>,
 }
 
 impl StructuredCfg {
-    fn remove_terminator(&mut self) -> Option<Code> {
+    fn remove_terminator(&mut self) -> Option<Terminator> {
         match self {
-            StructuredCfg::Block(block) => {
-                if let Some(t) = block.pop() {
-                    debug_assert!(match t {
-                        Code::Instruction(Instruction::Effect { op, .. }) => {
-                            match op {
-                                EffectOps::Jump => true,
-                                EffectOps::Branch => true,
-                                EffectOps::Return => true,
-                                _ => false,
-                            }
-                        }
-                        _ => false,
-                    });
-
-                    Some(t)
-                } else {
-                    None
-                }
-            }
+            StructuredCfg::Block(_, t) => t.take(),
             StructuredCfg::Linear(blocks) => blocks.last_mut().unwrap().remove_terminator(),
             StructuredCfg::Branch { .. } => None,
             StructuredCfg::Loop { .. } => None,
         }
     }
 
-    fn terminator(&self) -> Option<&Code> {
+    fn terminator(&self) -> Option<&Terminator> {
         match self {
-            StructuredCfg::Block(block) => {
-                if let Some(t) = block.last() {
-                    debug_assert!(match t {
-                        Code::Instruction(Instruction::Effect { op, .. }) => {
-                            match op {
-                                EffectOps::Jump => true,
-                                EffectOps::Branch => true,
-                                EffectOps::Return => true,
-                                _ => false,
-                            }
-                        }
-                        _ => false,
-                    });
-
-                    Some(t)
-                } else {
-                    None
-                }
-            }
+            StructuredCfg::Block(_, t) => t.as_ref(),
             StructuredCfg::Linear(blocks) => blocks.last().unwrap().terminator(),
             StructuredCfg::Branch { .. } => None,
             StructuredCfg::Loop { .. } => None,
@@ -92,7 +67,7 @@ impl StructuredCfg {
     fn flatten(&mut self) {
         match self {
             Self::Linear(blocks) => {
-                let mut item: Option<Vec<Code>> = None;
+                let mut item: Option<(Vec<Code>, Option<Terminator>)> = None;
                 let mut v = Vec::new();
 
                 for block in blocks {
@@ -105,24 +80,25 @@ impl StructuredCfg {
 
                     for block in linear {
                         match block {
-                            Self::Block(block) => {
-                                if let Some(codes) = &mut item {
+                            Self::Block(block, t_later) => {
+                                if let Some((codes, t)) = &mut item {
                                     codes.extend_from_slice(block.as_slice());
+                                    *t = t_later;
                                 } else {
-                                    item = Some(block);
+                                    item = Some((block, t_later));
                                 }
                             }
                             b => {
-                                if let Some(codes) = item.take() {
-                                    v.push(StructuredCfg::Block(codes));
+                                if let Some((codes, t)) = item.take() {
+                                    v.push(StructuredCfg::Block(codes, t));
                                 }
                                 v.push(b);
                             }
                         }
                     }
                 }
-                if let Some(item) = item.take() {
-                    v.push(StructuredCfg::Block(item));
+                if let Some((item, t)) = item.take() {
+                    v.push(StructuredCfg::Block(item, t));
                 }
                 *self = Self::Linear(v);
             }
@@ -132,123 +108,87 @@ impl StructuredCfg {
 }
 
 impl StructuredCfgBuilder {
-    fn remove_all(&mut self, label: &Label) {
-        self.block_map.remove(label);
-        self.predecessors.remove(label);
-        self.predecessors.iter_mut().for_each(|(_, v)| {
-            v.remove(label);
-        });
-        self.successors.remove(label);
-        self.successors.iter_mut().for_each(|(_, v)| {
-            v.remove(label);
-        });
-    }
-
-    fn merge(&mut self, left: Label, right: Label) {
-        let mut left_body = self.block_map.remove(&left).unwrap();
-        let right_body = self.block_map.remove(&right).unwrap();
-
-        left_body.remove_terminator();
-
-        // flatten later
-        let new_body = StructuredCfg::Linear(vec![left_body, right_body]);
-
-        self.block_map.insert(left.clone(), new_body);
-        self.predecessors.remove(&right);
-
-        if let Some(succ) = self.successors.remove(&right) {
-            self.successors.insert(left, succ);
-        } else {
-            self.successors.remove(&left);
+    fn merge(&mut self, from: NodeIndex, to: NodeIndex) {
+        for target in self.graph.edges(to).map(|e| e.target()).collect::<Vec<_>>() {
+            self.graph.add_edge(from, target, ());
         }
+        self.graph[from].remove_terminator();
+        self.graph[from] = StructuredCfg::Linear(vec![
+            self.graph[from].clone(),
+            self.graph.remove_node(to).unwrap(),
+        ]);
     }
 
     fn merge_linear(&mut self) -> bool {
-        let mut changed = false;
-
-        let labels = self.block_map.keys().cloned().collect::<Vec<_>>();
-
-        for label in labels {
-            if !self.block_map.contains_key(&label) {
+        for i in self.graph.node_indices() {
+            let out = self.graph.edges(i).collect::<Vec<_>>();
+            if out.len() != 1 {
                 continue;
             }
 
-            let Some(succ) = self.successors.get(&label) else {
-                continue;
-            };
+            let to = out[0].target();
 
-            if succ.len() != 1 {
-                continue;
-            }
-
-            let succ = succ.iter().next().unwrap().clone();
-
-            if self.predecessors[&succ].len() != 1 {
+            if self
+                .graph
+                .edges_directed(to, petgraph::Direction::Incoming)
+                .count()
+                != 1
+            {
                 continue;
             }
 
-            if let Some(succ_succ) = self.successors.get(&succ) {
-                if succ_succ.contains(&label) || succ_succ.contains(&succ) {
-                    // continue;
-                }
+            if self.graph.edges(to).any(|e| e.target() == to) {
+                continue;
             }
 
-            self.merge(label, succ);
-            changed = true;
+            self.merge(i, to);
+            return true;
         }
-
-        changed
+        false
     }
 
     fn merge_branch(&mut self) -> bool {
-        let mut changed = false;
+        for i in self.graph.node_indices() {
+            let out = self.graph.edges(i);
 
-        let labels = self.block_map.keys().cloned().collect::<Vec<_>>();
-
-        for label in labels {
-            if !self.block_map.contains_key(&label) {
+            if out.count() != 2 {
                 continue;
             }
 
-            let Some(succ) = self.successors.get(&label) else {
-                continue;
-            };
-
-            if succ.len() != 2 {
-                continue;
-            }
-
-            let br = self.block_map.get(&label).unwrap().terminator().unwrap();
-            let (left, right) = match br {
-                Code::Instruction(Instruction::Effect { labels, .. }) => (
-                    Label::Label(labels[0].clone()),
-                    Label::Label(labels[1].clone()),
-                ),
+            let (left, right) = match self.graph[i].terminator() {
+                Some(Terminator::Br(_, left, right)) => (*left, *right),
                 _ => panic!(),
             };
 
-            if left == label || right == label {
+            if i == left || i == right {
                 continue;
             }
 
-            if self.predecessors[&left].len() != 1 || self.predecessors[&right].len() != 1 {
-                continue;
-            }
-
-            if self.successors.get(&left).map(|s| s.len()).unwrap_or(0) == 0
-                && self.successors.get(&right).map(|s| s.len()).unwrap_or(0) == 0
+            if self
+                .graph
+                .edges_directed(left, petgraph::Direction::Incoming)
+                .count()
+                != 1
             {
-                let left_body = self.block_map.remove(&left).unwrap();
-                let right_body = self.block_map.remove(&right).unwrap();
+                continue;
+            }
 
-                let terminator = self
-                    .block_map
-                    .get_mut(&label)
-                    .unwrap()
-                    .terminator()
-                    .unwrap();
+            if self
+                .graph
+                .edges_directed(right, petgraph::Direction::Incoming)
+                .count()
+                != 1
+            {
+                continue;
+            }
+
+            if self.graph.edges(left).count() == 0 && self.graph.edges(right).count() == 0 {
+                let left_body = self.graph.remove_node(left).unwrap();
+                let right_body = self.graph.remove_node(right).unwrap();
+
+                let terminator = self.graph[i].remove_terminator().unwrap();
                 let cond_value = match terminator {
-                    Code::Instruction(Instruction::Effect { args, .. }) => args[0].clone(),
+                    Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
                 };
 
@@ -258,46 +198,36 @@ impl StructuredCfgBuilder {
                     else_block: Box::new(right_body),
                 };
 
-                self.block_map.insert(left.clone(), new_branch);
-                self.merge(label, left.clone());
-                self.remove_all(&right);
-                changed = true;
-                continue;
+                self.graph[i] = StructuredCfg::Linear(vec![self.graph[i].clone(), new_branch]);
+                self.graph.remove_node(left);
+                self.graph.remove_node(right);
+                return true;
             }
 
             let left_succ = {
-                let Some(ls) = self.successors.get(&left) else {
-                    continue;
-                };
-                if ls.len() != 1 {
+                let left_succ = self.graph.edges(left).collect::<Vec<_>>();
+                if left_succ.len() != 1 {
                     continue;
                 }
-                ls.iter().next().unwrap().clone()
+                left_succ[0].target()
             };
 
             let right_succ = {
-                let Some(rs) = self.successors.get(&right) else {
-                    continue;
-                };
-                if rs.len() != 1 {
+                let right_succ = self.graph.edges(right).collect::<Vec<_>>();
+                if right_succ.len() != 1 {
                     continue;
                 }
-                rs.iter().next().unwrap().clone()
+                right_succ[0].target()
             };
 
             if left_succ == right_succ {
                 let succ_succ = left_succ;
-                let mut left_body = self.block_map.remove(&left).unwrap();
-                let mut right_body = self.block_map.remove(&right).unwrap();
+                let mut left_body = self.graph.remove_node(left).unwrap();
+                let mut right_body = self.graph.remove_node(right).unwrap();
 
-                let terminator = self
-                    .block_map
-                    .get_mut(&label)
-                    .unwrap()
-                    .terminator()
-                    .unwrap();
+                let terminator = self.graph[i].remove_terminator().unwrap();
                 let cond_value = match terminator {
-                    Code::Instruction(Instruction::Effect { args, .. }) => args[0].clone(),
+                    Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
                 };
 
@@ -311,79 +241,65 @@ impl StructuredCfgBuilder {
                 };
 
                 if succ_succ == left {
-                    self.block_map.insert(left.clone(), new_branch);
-                    self.merge(label.clone(), left.clone());
-                    self.remove_all(&right);
+                    self.graph[left] = new_branch;
+                    self.merge(i, left);
+                    self.graph.remove_node(right);
                 } else {
-                    self.block_map.insert(right.clone(), new_branch);
-                    self.merge(label.clone(), right.clone());
-                    self.remove_all(&left);
+                    self.graph[right] = new_branch;
+                    self.merge(i, right);
+                    self.graph.remove_node(left);
                 }
-                changed = true;
+                return true;
             } else if left == right_succ {
-                let terminator = self
-                    .block_map
-                    .get_mut(&label)
-                    .unwrap()
-                    .terminator()
-                    .unwrap();
+                let terminator = self.graph[i].remove_terminator().unwrap();
                 let cond_value = match terminator {
-                    Code::Instruction(Instruction::Effect { args, .. }) => args[0].clone(),
+                    Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
                 };
 
-                let mut right_body = self.block_map.remove(&right).unwrap();
-                right_body.remove_terminator();
-
-                let new_branch = StructuredCfg::Branch {
+                self.graph[right] = StructuredCfg::Branch {
                     cond_value,
-                    then_block: Box::new(StructuredCfg::Block(Vec::new())),
-                    else_block: Box::new(right_body),
+                    then_block: Box::new(StructuredCfg::Block(Vec::new(), None)),
+                    else_block: Box::new({
+                        self.graph[right].remove_terminator();
+                        self.graph[right].clone()
+                    }),
                 };
 
-                self.block_map.insert(right.clone(), new_branch);
+                self.merge(i, right);
 
-                self.merge(label, right.clone());
-
-                changed = true;
+                return true;
             } else if right == left_succ {
-                let terminator = self
-                    .block_map
-                    .get_mut(&label)
-                    .unwrap()
-                    .terminator()
-                    .unwrap();
+                let terminator = self.graph[i].remove_terminator().unwrap();
                 let cond_value = match terminator {
-                    Code::Instruction(Instruction::Effect { args, .. }) => args[0].clone(),
+                    Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
                 };
 
-                let mut left_body = self.block_map.remove(&left).unwrap();
-                left_body.remove_terminator();
-
-                let new_branch = StructuredCfg::Branch {
+                self.graph[left] = StructuredCfg::Branch {
                     cond_value,
-                    then_block: Box::new(left_body),
-                    else_block: Box::new(StructuredCfg::Block(Vec::new())),
+                    then_block: Box::new({
+                        self.graph[left].remove_terminator();
+                        self.graph[left].clone()
+                    }),
+                    else_block: Box::new(StructuredCfg::Block(Vec::new(), None)),
                 };
 
-                self.block_map.insert(left.clone(), new_branch);
+                self.merge(i, left);
 
-                self.merge(label, left.clone());
-
-                changed = true;
+                return true;
             }
         }
 
-        changed
+        false
     }
 }
 
 #[derive(Default, Debug)]
 pub struct Cfg {
     block_map: HashMap<Label, Vec<Code>>,
-    successors: HashMap<Label, HashSet<Label>>,
-    predecessors: HashMap<Label, HashSet<Label>>,
+    node_map: HashMap<Label, NodeIndex>,
+    graph: DiGraph<Label, ()>,
 }
 
 impl Cfg {
@@ -391,6 +307,18 @@ impl Cfg {
         let mut cfg = Self::default();
 
         let mut current_state = Some((Label::Root, Vec::new()));
+
+        let mut add_edge = |from: Label, to: Label| {
+            let from = *cfg
+                .node_map
+                .entry(from.clone())
+                .or_insert_with(|| cfg.graph.add_node(from));
+            let to = *cfg
+                .node_map
+                .entry(to.clone())
+                .or_insert_with(|| cfg.graph.add_node(to));
+            cfg.graph.add_edge(from, to, ());
+        };
 
         for code in codes {
             match code {
@@ -403,14 +331,7 @@ impl Cfg {
                             op: EffectOps::Jump,
                         }));
                         cfg.block_map.insert(current_label.clone(), block);
-                        cfg.successors
-                            .entry(current_label.clone())
-                            .or_default()
-                            .insert(Label::Label(label.clone()));
-                        cfg.predecessors
-                            .entry(Label::Label(label.clone()))
-                            .or_default()
-                            .insert(current_label.clone());
+                        add_edge(current_label.clone(), Label::Label(label.clone()));
                     }
                     current_state = Some((Label::Label(label.clone()), vec![code.clone()]));
                 }
@@ -420,14 +341,7 @@ impl Cfg {
                             if let Some((label, mut block)) = current_state {
                                 block.push(code.clone());
                                 cfg.block_map.insert(label.clone(), block);
-                                cfg.successors
-                                    .entry(label.clone())
-                                    .or_default()
-                                    .insert(Label::Label(labels[0].clone()));
-                                cfg.predecessors
-                                    .entry(Label::Label(labels[0].clone()))
-                                    .or_default()
-                                    .insert(label.clone());
+                                add_edge(label.clone(), Label::Label(labels[0].clone()));
                             }
                             current_state = None;
                         }
@@ -436,22 +350,8 @@ impl Cfg {
                             if let Some((label, mut block)) = current_state {
                                 block.push(code.clone());
                                 cfg.block_map.insert(label.clone(), block);
-                                cfg.successors
-                                    .entry(label.clone())
-                                    .or_default()
-                                    .insert(Label::Label(labels[0].clone()));
-                                cfg.successors
-                                    .entry(label.clone())
-                                    .or_default()
-                                    .insert(Label::Label(labels[1].clone()));
-                                cfg.predecessors
-                                    .entry(Label::Label(labels[0].clone()))
-                                    .or_default()
-                                    .insert(label.clone());
-                                cfg.predecessors
-                                    .entry(Label::Label(labels[1].clone()))
-                                    .or_default()
-                                    .insert(label.clone());
+                                add_edge(label.clone(), Label::Label(labels[0].clone()));
+                                add_edge(label.clone(), Label::Label(labels[1].clone()));
                             }
                             current_state = None;
                         }
@@ -506,60 +406,49 @@ impl Cfg {
         cfg
     }
 
-    pub fn merge_linear(&mut self) -> bool {
-        let mut changed = false;
+    fn into_structure_cfg_builder(self) -> StructuredCfgBuilder {
+        let mut graph = Graph::new();
 
-        let labels = self.block_map.keys().cloned().collect::<Vec<_>>();
+        let mut label_map = HashMap::new();
+        for label in self.block_map.keys() {
+            label_map.insert(
+                label.clone(),
+                // dummy cfg
+                graph.add_node(StructuredCfg::Linear(Vec::new())),
+            );
+        }
 
-        for label in labels {
-            if !self.block_map.contains_key(&label) {
-                continue;
+        for (label, mut block) in self.block_map {
+            if matches!(block.first(), Some(Code::Label { .. })) {
+                block.remove(0);
             }
 
-            let Some(succ) = self.successors.get(&label) else {
-                continue;
+            let terminator = match block.pop() {
+                Some(Code::Instruction(Instruction::Effect {
+                    args, labels, op, ..
+                })) => match op {
+                    EffectOps::Jump => {
+                        debug_assert!(labels.len() == 1);
+                        Terminator::Jmp(label_map[&Label::Label(labels[0].clone())])
+                    }
+                    EffectOps::Branch => {
+                        debug_assert!(labels.len() == 2);
+                        Terminator::Br(
+                            args[0].clone(),
+                            label_map[&Label::Label(labels[0].clone())],
+                            label_map[&Label::Label(labels[1].clone())],
+                        )
+                    }
+                    EffectOps::Return => Terminator::Ret(args.get(0).cloned()),
+                    _ => panic!(),
+                },
+                _ => panic!(),
             };
 
-            if succ.len() != 1 {
-                continue;
-            }
-
-            let succ = succ.iter().next().unwrap().clone();
-
-            if self.predecessors[&succ].len() != 1 {
-                continue;
-            }
-
-            let succ_body = self.block_map.remove(&succ).unwrap();
-            let body = self.block_map.get_mut(&label).unwrap();
-            body.pop();
-            body.extend(succ_body);
-
-            let succ_succ = self.successors.remove(&succ).unwrap_or_default();
-            self.successors.insert(label.clone(), succ_succ);
-            self.predecessors.remove(&succ);
-            changed = true;
+            graph[label_map[&label]] = StructuredCfg::Block(block, Some(terminator));
         }
 
-        changed
-    }
-
-    fn into_structure_cfg_builder(self) -> StructuredCfgBuilder {
-        StructuredCfgBuilder {
-            block_map: self
-                .block_map
-                .into_iter()
-                .map(|(k, mut v)| {
-                    if matches!(v.first(), Some(Code::Label { .. })) {
-                        v.remove(0);
-                    }
-
-                    (k, StructuredCfg::Block(v))
-                })
-                .collect(),
-            successors: self.successors,
-            predecessors: self.predecessors,
-        }
+        StructuredCfgBuilder { graph }
     }
 
     pub fn flatten(&self) -> Vec<Code> {
@@ -598,7 +487,7 @@ mod test {
 
             for function in &mut program.functions {
                 let mut cfg = Cfg::new(&function.instrs);
-                while cfg.merge_linear() {}
+                // while cfg.merge_linear() {}
                 let codes = cfg.flatten();
                 function.instrs = codes;
             }
@@ -629,7 +518,10 @@ mod test {
 
                 while builder.merge_linear() || builder.merge_branch() {}
 
-                let mut root = builder.block_map.remove(&Label::Root).unwrap();
+                let mut root = builder
+                    .graph
+                    .remove_node(builder.graph.node_indices().next().unwrap())
+                    .unwrap();
                 root.flatten();
 
                 dbg!(root);
