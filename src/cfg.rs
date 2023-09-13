@@ -1,12 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use bril_rs::{Code, EffectOps, Instruction};
-use petgraph::{
-    graph::NodeIndex,
-    prelude::DiGraph,
-    visit::{EdgeRef, IntoEdges, IntoEdgesDirected},
-    Graph,
-};
+use petgraph::{graph::NodeIndex, prelude::DiGraph, visit::EdgeRef, Graph};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
 pub enum Label {
@@ -109,6 +104,10 @@ impl StructuredCfg {
 
 impl StructuredCfgBuilder {
     fn merge(&mut self, from: NodeIndex, to: NodeIndex) {
+        dbg!(from, to, self.graph.node_count());
+        for e in self.graph.edges(from).map(|e| e.id()).collect::<Vec<_>>() {
+            self.graph.remove_edge(e);
+        }
         for target in self.graph.edges(to).map(|e| e.target()).collect::<Vec<_>>() {
             self.graph.add_edge(from, target, ());
         }
@@ -157,7 +156,7 @@ impl StructuredCfgBuilder {
 
             let (left, right) = match self.graph[i].terminator() {
                 Some(Terminator::Br(_, left, right)) => (*left, *right),
-                _ => panic!(),
+                _ => panic!("{:?}", &self.graph),
             };
 
             if i == left || i == right {
@@ -221,9 +220,13 @@ impl StructuredCfgBuilder {
             };
 
             if left_succ == right_succ {
+                dbg!(i, left, right, &self.graph.node_count());
                 let succ_succ = left_succ;
-                let mut left_body = self.graph.remove_node(left).unwrap();
-                let mut right_body = self.graph.remove_node(right).unwrap();
+                if succ_succ == left || succ_succ == right {
+                    continue;
+                }
+                let mut left_body = self.graph[left].clone();
+                let mut right_body = self.graph[right].clone();
 
                 let terminator = self.graph[i].remove_terminator().unwrap();
                 let cond_value = match terminator {
@@ -231,6 +234,7 @@ impl StructuredCfgBuilder {
                     _ => panic!(),
                 };
 
+                dbg!(i, left, right, &self.graph.node_count());
                 left_body.remove_terminator();
                 right_body.remove_terminator();
 
@@ -240,15 +244,11 @@ impl StructuredCfgBuilder {
                     else_block: Box::new(right_body),
                 };
 
-                if succ_succ == left {
-                    self.graph[left] = new_branch;
-                    self.merge(i, left);
-                    self.graph.remove_node(right);
-                } else {
-                    self.graph[right] = new_branch;
-                    self.merge(i, right);
-                    self.graph.remove_node(left);
-                }
+                dbg!(i, left, right, &self.graph.node_count());
+                self.graph[left] = new_branch;
+                dbg!(i, left, right, &self.graph);
+                self.merge(i, left);
+                self.graph.remove_node(right);
                 return true;
             } else if left == right_succ {
                 let terminator = self.graph[i].remove_terminator().unwrap();
@@ -446,6 +446,14 @@ impl Cfg {
             };
 
             graph[label_map[&label]] = StructuredCfg::Block(block, Some(terminator));
+        }
+
+        for e in self.graph.edge_references() {
+            graph.add_edge(
+                label_map[&self.graph[e.source()]],
+                label_map[&self.graph[e.target()]],
+                (),
+            );
         }
 
         StructuredCfgBuilder { graph }
