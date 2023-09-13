@@ -189,7 +189,7 @@ impl StructuredCfgBuilder {
 
             if let Some(succ_succ) = self.successors.get(&succ) {
                 if succ_succ.contains(&label) || succ_succ.contains(&succ) {
-                    continue;
+                    // continue;
                 }
             }
 
@@ -402,7 +402,15 @@ impl Cfg {
                             labels: vec![label.clone()],
                             op: EffectOps::Jump,
                         }));
-                        cfg.block_map.insert(current_label, block);
+                        cfg.block_map.insert(current_label.clone(), block);
+                        cfg.successors
+                            .entry(current_label.clone())
+                            .or_default()
+                            .insert(Label::Label(label.clone()));
+                        cfg.predecessors
+                            .entry(Label::Label(label.clone()))
+                            .or_default()
+                            .insert(current_label.clone());
                     }
                     current_state = Some((Label::Label(label.clone()), vec![code.clone()]));
                 }
@@ -615,6 +623,7 @@ mod test {
             let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
 
             for function in &mut program.functions {
+                println!("checking {} ... ", path.to_str().unwrap());
                 let cfg = Cfg::new(&function.instrs);
                 let mut builder = cfg.into_structure_cfg_builder();
 
@@ -623,7 +632,6 @@ mod test {
                 let mut root = builder.block_map.remove(&Label::Root).unwrap();
                 root.flatten();
 
-                println!("checking {} ... ", path.to_str().unwrap());
                 dbg!(root);
                 dbg!(builder);
             }
