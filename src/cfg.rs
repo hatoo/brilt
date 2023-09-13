@@ -1,12 +1,7 @@
 use std::collections::HashMap;
 
 use bril_rs::{Code, EffectOps, Instruction};
-use petgraph::{
-    graph::NodeIndex,
-    prelude::{DiGraph, DiGraphMap},
-    visit::EdgeRef,
-    Graph,
-};
+use petgraph::{prelude::DiGraphMap, visit::EdgeRef};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
 pub enum Label {
