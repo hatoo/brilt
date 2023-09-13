@@ -187,6 +187,12 @@ impl StructuredCfgBuilder {
                 continue;
             }
 
+            if let Some(succ_succ) = self.successors.get(&succ) {
+                if succ_succ.contains(&label) || succ_succ.contains(&succ) {
+                    continue;
+                }
+            }
+
             self.merge(label, succ);
             changed = true;
         }
