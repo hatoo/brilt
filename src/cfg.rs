@@ -1,7 +1,12 @@
 use std::collections::HashMap;
 
 use bril_rs::{Code, EffectOps, Instruction};
-use petgraph::{graph::NodeIndex, prelude::DiGraph, visit::EdgeRef, Graph};
+use petgraph::{
+    graph::NodeIndex,
+    prelude::{DiGraph, DiGraphMap},
+    visit::EdgeRef,
+    Graph,
+};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
 pub enum Label {
@@ -12,8 +17,8 @@ pub enum Label {
 #[derive(Debug, Clone)]
 pub enum Terminator {
     Ret(Option<String>),
-    Jmp(NodeIndex),
-    Br(String, NodeIndex, NodeIndex),
+    Jmp(usize),
+    Br(String, usize, usize),
 }
 
 #[derive(Debug, Clone)]
@@ -37,7 +42,8 @@ pub enum StructuredCfg {
 
 #[derive(Default, Debug)]
 struct StructuredCfgBuilder {
-    graph: Graph<StructuredCfg, ()>,
+    block_map: HashMap<usize, StructuredCfg>,
+    graph: DiGraphMap<usize, ()>,
 }
 
 impl StructuredCfg {
@@ -103,58 +109,73 @@ impl StructuredCfg {
 }
 
 impl StructuredCfgBuilder {
-    fn merge(&mut self, from: NodeIndex, to: NodeIndex) {
-        dbg!(from, to, self.graph.node_count());
-        for e in self.graph.edges(from).map(|e| e.id()).collect::<Vec<_>>() {
-            self.graph.remove_edge(e);
+    fn merge(&mut self, from: usize, to: usize) {
+        for t in self.graph.neighbors(from).collect::<Vec<_>>() {
+            self.graph.remove_edge(from, t);
         }
-        for target in self.graph.edges(to).map(|e| e.target()).collect::<Vec<_>>() {
+        for target in self.graph.neighbors(to).collect::<Vec<_>>() {
             self.graph.add_edge(from, target, ());
         }
-        self.graph[from].remove_terminator();
-        self.graph[from] = StructuredCfg::Linear(vec![
-            self.graph[from].clone(),
-            self.graph.remove_node(to).unwrap(),
-        ]);
+        self.graph.remove_node(to);
+
+        let mut from_body = self.block_map.remove(&from).unwrap();
+        from_body.remove_terminator();
+
+        let to_body = self.block_map.remove(&to).unwrap();
+
+        self.block_map
+            .insert(from, StructuredCfg::Linear(vec![from_body, to_body]));
     }
 
     fn merge_linear(&mut self) -> bool {
-        for i in self.graph.node_indices() {
-            let out = self.graph.edges(i).collect::<Vec<_>>();
+        let mut changed = false;
+        for i in self.graph.nodes().collect::<Vec<_>>() {
+            if !self.graph.contains_node(i) {
+                continue;
+            }
+
+            let out = self.graph.neighbors(i).collect::<Vec<_>>();
             if out.len() != 1 {
                 continue;
             }
 
-            let to = out[0].target();
+            let to = out[0];
 
             if self
                 .graph
-                .edges_directed(to, petgraph::Direction::Incoming)
+                .neighbors_directed(to, petgraph::Direction::Incoming)
                 .count()
                 != 1
             {
                 continue;
             }
 
-            if self.graph.edges(to).any(|e| e.target() == to) {
+            if self.graph.neighbors(to).any(|t| t == to) {
                 continue;
             }
 
             self.merge(i, to);
-            return true;
+
+            changed = true;
         }
-        false
+
+        changed
     }
 
     fn merge_branch(&mut self) -> bool {
-        for i in self.graph.node_indices() {
-            let out = self.graph.edges(i);
+        let mut changed = false;
+        for i in self.graph.nodes().collect::<Vec<_>>() {
+            if !self.graph.contains_node(i) {
+                continue;
+            }
+
+            let out = self.graph.neighbors(i);
 
             if out.count() != 2 {
                 continue;
             }
 
-            let (left, right) = match self.graph[i].terminator() {
+            let (left, right) = match self.block_map[&i].terminator() {
                 Some(Terminator::Br(_, left, right)) => (*left, *right),
                 _ => panic!("{:?}", &self.graph),
             };
@@ -165,7 +186,7 @@ impl StructuredCfgBuilder {
 
             if self
                 .graph
-                .edges_directed(left, petgraph::Direction::Incoming)
+                .neighbors_directed(left, petgraph::Direction::Incoming)
                 .count()
                 != 1
             {
@@ -174,7 +195,7 @@ impl StructuredCfgBuilder {
 
             if self
                 .graph
-                .edges_directed(right, petgraph::Direction::Incoming)
+                .neighbors_directed(right, petgraph::Direction::Incoming)
                 .count()
                 != 1
             {
@@ -182,10 +203,11 @@ impl StructuredCfgBuilder {
             }
 
             if self.graph.edges(left).count() == 0 && self.graph.edges(right).count() == 0 {
-                let left_body = self.graph.remove_node(left).unwrap();
-                let right_body = self.graph.remove_node(right).unwrap();
+                let left_body = self.block_map.remove(&left).unwrap();
+                let right_body = self.block_map.remove(&right).unwrap();
 
-                let terminator = self.graph[i].remove_terminator().unwrap();
+                let mut body = self.block_map.remove(&i).unwrap();
+                let terminator = body.remove_terminator().unwrap();
                 let cond_value = match terminator {
                     Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
@@ -197,10 +219,11 @@ impl StructuredCfgBuilder {
                     else_block: Box::new(right_body),
                 };
 
-                self.graph[i] = StructuredCfg::Linear(vec![self.graph[i].clone(), new_branch]);
+                self.block_map
+                    .insert(i, StructuredCfg::Linear(vec![body, new_branch]));
                 self.graph.remove_node(left);
                 self.graph.remove_node(right);
-                return true;
+                changed = true;
             }
 
             let left_succ = {
@@ -220,21 +243,20 @@ impl StructuredCfgBuilder {
             };
 
             if left_succ == right_succ {
-                dbg!(i, left, right, &self.graph.node_count());
                 let succ_succ = left_succ;
                 if succ_succ == left || succ_succ == right {
                     continue;
                 }
-                let mut left_body = self.graph[left].clone();
-                let mut right_body = self.graph[right].clone();
+                let mut left_body = self.block_map.remove(&left).unwrap();
+                let mut right_body = self.block_map.remove(&right).unwrap();
 
-                let terminator = self.graph[i].remove_terminator().unwrap();
+                let mut body = self.block_map.get_mut(&i).unwrap();
+                let terminator = body.remove_terminator().unwrap();
                 let cond_value = match terminator {
                     Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
                 };
 
-                dbg!(i, left, right, &self.graph.node_count());
                 left_body.remove_terminator();
                 right_body.remove_terminator();
 
@@ -244,80 +266,91 @@ impl StructuredCfgBuilder {
                     else_block: Box::new(right_body),
                 };
 
-                dbg!(i, left, right, &self.graph.node_count());
-                self.graph[left] = new_branch;
-                dbg!(i, left, right, &self.graph);
+                self.block_map.insert(left, new_branch);
                 self.merge(i, left);
                 self.graph.remove_node(right);
                 return true;
             } else if left == right_succ {
-                let terminator = self.graph[i].remove_terminator().unwrap();
+                let terminator = self
+                    .block_map
+                    .get_mut(&i)
+                    .unwrap()
+                    .remove_terminator()
+                    .unwrap();
                 let cond_value = match terminator {
                     Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
                 };
 
-                self.graph[right] = StructuredCfg::Branch {
-                    cond_value,
-                    then_block: Box::new(StructuredCfg::Block(Vec::new(), None)),
-                    else_block: Box::new({
-                        self.graph[right].remove_terminator();
-                        self.graph[right].clone()
-                    }),
-                };
+                let mut right_body = self.block_map.remove(&right).unwrap();
+                right_body.remove_terminator();
+
+                self.block_map.insert(
+                    right,
+                    StructuredCfg::Branch {
+                        cond_value,
+                        then_block: Box::new(StructuredCfg::Block(Vec::new(), None)),
+                        else_block: Box::new(right_body),
+                    },
+                );
 
                 self.merge(i, right);
 
-                return true;
+                changed = true;
             } else if right == left_succ {
-                let terminator = self.graph[i].remove_terminator().unwrap();
+                let terminator = self
+                    .block_map
+                    .get_mut(&i)
+                    .unwrap()
+                    .remove_terminator()
+                    .unwrap();
                 let cond_value = match terminator {
                     Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
                 };
 
-                self.graph[left] = StructuredCfg::Branch {
-                    cond_value,
-                    then_block: Box::new({
-                        self.graph[left].remove_terminator();
-                        self.graph[left].clone()
-                    }),
-                    else_block: Box::new(StructuredCfg::Block(Vec::new(), None)),
-                };
+                let mut left_body = self.block_map.remove(&left).unwrap();
+                left_body.remove_terminator();
+
+                self.block_map.insert(
+                    left,
+                    StructuredCfg::Branch {
+                        cond_value,
+                        then_block: Box::new(left_body),
+                        else_block: Box::new(StructuredCfg::Block(Vec::new(), None)),
+                    },
+                );
 
                 self.merge(i, left);
 
-                return true;
+                changed = true;
             }
         }
 
-        false
+        changed
     }
 }
 
 #[derive(Default, Debug)]
 pub struct Cfg {
-    block_map: HashMap<Label, Vec<Code>>,
-    node_map: HashMap<Label, NodeIndex>,
-    graph: DiGraph<Label, ()>,
+    block_map: HashMap<usize, Vec<Code>>,
+    graph: DiGraphMap<usize, ()>,
+    label_map: HashMap<Label, usize>,
 }
 
 impl Cfg {
     pub fn new(codes: &[Code]) -> Self {
         let mut cfg = Self::default();
 
+        let mut id = 0;
         let mut current_state = Some((Label::Root, Vec::new()));
 
-        let mut add_edge = |from: Label, to: Label| {
-            let from = *cfg
-                .node_map
-                .entry(from.clone())
-                .or_insert_with(|| cfg.graph.add_node(from));
-            let to = *cfg
-                .node_map
-                .entry(to.clone())
-                .or_insert_with(|| cfg.graph.add_node(to));
-            cfg.graph.add_edge(from, to, ());
+        let mut node = |label: Label| {
+            *cfg.label_map.entry(label).or_insert_with(|| {
+                let ret = id;
+                id += 1;
+                ret
+            })
         };
 
         for code in codes {
@@ -330,8 +363,12 @@ impl Cfg {
                             labels: vec![label.clone()],
                             op: EffectOps::Jump,
                         }));
-                        cfg.block_map.insert(current_label.clone(), block);
-                        add_edge(current_label.clone(), Label::Label(label.clone()));
+                        cfg.block_map.insert(node(current_label.clone()), block);
+                        cfg.graph.add_edge(
+                            node(current_label.clone()),
+                            node(Label::Label(label.clone())),
+                            (),
+                        );
                     }
                     current_state = Some((Label::Label(label.clone()), vec![code.clone()]));
                 }
@@ -340,8 +377,12 @@ impl Cfg {
                         EffectOps::Jump => {
                             if let Some((label, mut block)) = current_state {
                                 block.push(code.clone());
-                                cfg.block_map.insert(label.clone(), block);
-                                add_edge(label.clone(), Label::Label(labels[0].clone()));
+                                cfg.block_map.insert(node(label.clone()), block);
+                                cfg.graph.add_edge(
+                                    node(label.clone()),
+                                    node(Label::Label(labels[0].clone())),
+                                    (),
+                                );
                             }
                             current_state = None;
                         }
@@ -349,9 +390,17 @@ impl Cfg {
                         EffectOps::Branch => {
                             if let Some((label, mut block)) = current_state {
                                 block.push(code.clone());
-                                cfg.block_map.insert(label.clone(), block);
-                                add_edge(label.clone(), Label::Label(labels[0].clone()));
-                                add_edge(label.clone(), Label::Label(labels[1].clone()));
+                                cfg.block_map.insert(node(label.clone()), block);
+                                cfg.graph.add_edge(
+                                    node(label.clone()),
+                                    node(Label::Label(labels[0].clone())),
+                                    (),
+                                );
+                                cfg.graph.add_edge(
+                                    node(label.clone()),
+                                    node(Label::Label(labels[1].clone())),
+                                    (),
+                                );
                             }
                             current_state = None;
                         }
@@ -359,7 +408,7 @@ impl Cfg {
                         EffectOps::Return => {
                             if let Some((label, mut block)) = current_state {
                                 block.push(code.clone());
-                                cfg.block_map.insert(label, block);
+                                cfg.block_map.insert(node(label), block);
                             }
                             current_state = None;
                         }
@@ -400,73 +449,56 @@ impl Cfg {
                     op: EffectOps::Return,
                 }));
             }
-            cfg.block_map.insert(label, block);
+            cfg.block_map.insert(node(label), block);
         }
 
         cfg
     }
 
     fn into_structure_cfg_builder(self) -> StructuredCfgBuilder {
-        let mut graph = Graph::new();
+        let block_map = self
+            .block_map
+            .into_iter()
+            .map(|(label, mut block)| {
+                if matches!(block.first(), Some(Code::Label { .. })) {
+                    block.remove(0);
+                }
 
-        let mut label_map = HashMap::new();
-        for label in self.block_map.keys() {
-            label_map.insert(
-                label.clone(),
-                // dummy cfg
-                graph.add_node(StructuredCfg::Linear(Vec::new())),
-            );
-        }
-
-        for (label, mut block) in self.block_map {
-            if matches!(block.first(), Some(Code::Label { .. })) {
-                block.remove(0);
-            }
-
-            let terminator = match block.pop() {
-                Some(Code::Instruction(Instruction::Effect {
-                    args, labels, op, ..
-                })) => match op {
-                    EffectOps::Jump => {
-                        debug_assert!(labels.len() == 1);
-                        Terminator::Jmp(label_map[&Label::Label(labels[0].clone())])
-                    }
-                    EffectOps::Branch => {
-                        debug_assert!(labels.len() == 2);
-                        Terminator::Br(
-                            args[0].clone(),
-                            label_map[&Label::Label(labels[0].clone())],
-                            label_map[&Label::Label(labels[1].clone())],
-                        )
-                    }
-                    EffectOps::Return => Terminator::Ret(args.get(0).cloned()),
+                let terminator = match block.pop() {
+                    Some(Code::Instruction(Instruction::Effect {
+                        args, labels, op, ..
+                    })) => match op {
+                        EffectOps::Jump => {
+                            debug_assert!(labels.len() == 1);
+                            Terminator::Jmp(self.label_map[&Label::Label(labels[0].clone())])
+                        }
+                        EffectOps::Branch => {
+                            debug_assert!(labels.len() == 2);
+                            Terminator::Br(
+                                args[0].clone(),
+                                self.label_map[&Label::Label(labels[0].clone())],
+                                self.label_map[&Label::Label(labels[1].clone())],
+                            )
+                        }
+                        EffectOps::Return => Terminator::Ret(args.get(0).cloned()),
+                        _ => panic!(),
+                    },
                     _ => panic!(),
-                },
-                _ => panic!(),
-            };
+                };
+                (label, StructuredCfg::Block(block, Some(terminator)))
+            })
+            .collect();
 
-            graph[label_map[&label]] = StructuredCfg::Block(block, Some(terminator));
+        StructuredCfgBuilder {
+            block_map,
+            graph: self.graph,
         }
-
-        for e in self.graph.edge_references() {
-            graph.add_edge(
-                label_map[&self.graph[e.source()]],
-                label_map[&self.graph[e.target()]],
-                (),
-            );
-        }
-
-        StructuredCfgBuilder { graph }
     }
 
     pub fn flatten(&self) -> Vec<Code> {
-        let mut codes = self.block_map[&Label::Root].clone();
+        let mut codes = self.block_map[&0].clone();
 
-        for (_, block) in self
-            .block_map
-            .iter()
-            .filter(|(label, _)| label != &&Label::Root)
-        {
+        for (_, block) in self.block_map.iter().filter(|(&label, _)| label != 0) {
             codes.extend(block.iter().cloned());
         }
 
@@ -527,8 +559,8 @@ mod test {
                 while builder.merge_linear() || builder.merge_branch() {}
 
                 let mut root = builder
-                    .graph
-                    .remove_node(builder.graph.node_indices().next().unwrap())
+                    .block_map
+                    .remove(&builder.graph.nodes().next().unwrap())
                     .unwrap();
                 root.flatten();
 
