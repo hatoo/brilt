@@ -37,8 +37,53 @@ struct StructuredCfgBuilder {
 impl StructuredCfg {
     fn remove_terminator(&mut self) -> Option<Code> {
         match self {
-            StructuredCfg::Block(block) => block.pop(),
+            StructuredCfg::Block(block) => {
+                if let Some(t) = block.pop() {
+                    debug_assert!(match t {
+                        Code::Instruction(Instruction::Effect { op, .. }) => {
+                            match op {
+                                EffectOps::Jump => true,
+                                EffectOps::Branch => true,
+                                EffectOps::Return => true,
+                                _ => false,
+                            }
+                        }
+                        _ => false,
+                    });
+
+                    Some(t)
+                } else {
+                    None
+                }
+            }
             StructuredCfg::Linear(blocks) => blocks.last_mut().unwrap().remove_terminator(),
+            StructuredCfg::Branch { .. } => None,
+            StructuredCfg::Loop { .. } => None,
+        }
+    }
+
+    fn terminator(&self) -> Option<&Code> {
+        match self {
+            StructuredCfg::Block(block) => {
+                if let Some(t) = block.last() {
+                    debug_assert!(match t {
+                        Code::Instruction(Instruction::Effect { op, .. }) => {
+                            match op {
+                                EffectOps::Jump => true,
+                                EffectOps::Branch => true,
+                                EffectOps::Return => true,
+                                _ => false,
+                            }
+                        }
+                        _ => false,
+                    });
+
+                    Some(t)
+                } else {
+                    None
+                }
+            }
+            StructuredCfg::Linear(blocks) => blocks.last().unwrap().terminator(),
             StructuredCfg::Branch { .. } => None,
             StructuredCfg::Loop { .. } => None,
         }
@@ -90,7 +135,13 @@ impl StructuredCfgBuilder {
     fn remove_all(&mut self, label: &Label) {
         self.block_map.remove(label);
         self.predecessors.remove(label);
+        self.predecessors.iter_mut().for_each(|(_, v)| {
+            v.remove(label);
+        });
         self.successors.remove(label);
+        self.successors.iter_mut().for_each(|(_, v)| {
+            v.remove(label);
+        });
     }
 
     fn merge(&mut self, left: Label, right: Label) {
@@ -161,29 +212,34 @@ impl StructuredCfgBuilder {
                 continue;
             }
 
-            let succs = succ.iter().cloned().collect::<Vec<_>>();
-            let left = &succs[0];
-            let right = &succs[1];
+            let br = self.block_map.get(&label).unwrap().terminator().unwrap();
+            let (left, right) = match br {
+                Code::Instruction(Instruction::Effect { labels, .. }) => (
+                    Label::Label(labels[0].clone()),
+                    Label::Label(labels[1].clone()),
+                ),
+                _ => panic!(),
+            };
 
-            if left == &label || right == &label {
+            if left == label || right == label {
                 continue;
             }
 
-            if self.predecessors[left].len() != 1 || self.predecessors[right].len() != 1 {
+            if self.predecessors[&left].len() != 1 || self.predecessors[&right].len() != 1 {
                 continue;
             }
 
-            if self.successors.get(left).map(|s| s.len()).unwrap_or(0) == 0
-                && self.successors.get(right).map(|s| s.len()).unwrap_or(0) == 0
+            if self.successors.get(&left).map(|s| s.len()).unwrap_or(0) == 0
+                && self.successors.get(&right).map(|s| s.len()).unwrap_or(0) == 0
             {
-                let left_body = self.block_map.remove(left).unwrap();
-                let right_body = self.block_map.remove(right).unwrap();
+                let left_body = self.block_map.remove(&left).unwrap();
+                let right_body = self.block_map.remove(&right).unwrap();
 
                 let terminator = self
                     .block_map
                     .get_mut(&label)
                     .unwrap()
-                    .remove_terminator()
+                    .terminator()
                     .unwrap();
                 let cond_value = match terminator {
                     Code::Instruction(Instruction::Effect { args, .. }) => args[0].clone(),
@@ -198,13 +254,13 @@ impl StructuredCfgBuilder {
 
                 self.block_map.insert(left.clone(), new_branch);
                 self.merge(label, left.clone());
-                self.remove_all(right);
+                self.remove_all(&right);
                 changed = true;
                 continue;
             }
 
             let left_succ = {
-                let Some(ls) = self.successors.get(left) else {
+                let Some(ls) = self.successors.get(&left) else {
                     continue;
                 };
                 if ls.len() != 1 {
@@ -214,7 +270,7 @@ impl StructuredCfgBuilder {
             };
 
             let right_succ = {
-                let Some(rs) = self.successors.get(right) else {
+                let Some(rs) = self.successors.get(&right) else {
                     continue;
                 };
                 if rs.len() != 1 {
@@ -225,14 +281,14 @@ impl StructuredCfgBuilder {
 
             if left_succ == right_succ {
                 let succ_succ = left_succ;
-                let mut left_body = self.block_map.remove(left).unwrap();
-                let mut right_body = self.block_map.remove(right).unwrap();
+                let mut left_body = self.block_map.remove(&left).unwrap();
+                let mut right_body = self.block_map.remove(&right).unwrap();
 
                 let terminator = self
                     .block_map
                     .get_mut(&label)
                     .unwrap()
-                    .remove_terminator()
+                    .terminator()
                     .unwrap();
                 let cond_value = match terminator {
                     Code::Instruction(Instruction::Effect { args, .. }) => args[0].clone(),
@@ -248,7 +304,7 @@ impl StructuredCfgBuilder {
                     else_block: Box::new(right_body),
                 };
 
-                if &succ_succ == left {
+                if succ_succ == left {
                     self.block_map.insert(left.clone(), new_branch);
                     self.merge(label.clone(), left.clone());
                     self.remove_all(&right);
@@ -258,19 +314,19 @@ impl StructuredCfgBuilder {
                     self.remove_all(&left);
                 }
                 changed = true;
-            } else if left == &right_succ {
+            } else if left == right_succ {
                 let terminator = self
                     .block_map
                     .get_mut(&label)
                     .unwrap()
-                    .remove_terminator()
+                    .terminator()
                     .unwrap();
                 let cond_value = match terminator {
                     Code::Instruction(Instruction::Effect { args, .. }) => args[0].clone(),
                     _ => panic!(),
                 };
 
-                let mut right_body = self.block_map.remove(right).unwrap();
+                let mut right_body = self.block_map.remove(&right).unwrap();
                 right_body.remove_terminator();
 
                 let new_branch = StructuredCfg::Branch {
@@ -284,19 +340,19 @@ impl StructuredCfgBuilder {
                 self.merge(label, right.clone());
 
                 changed = true;
-            } else if right == &left_succ {
+            } else if right == left_succ {
                 let terminator = self
                     .block_map
                     .get_mut(&label)
                     .unwrap()
-                    .remove_terminator()
+                    .terminator()
                     .unwrap();
                 let cond_value = match terminator {
                     Code::Instruction(Instruction::Effect { args, .. }) => args[0].clone(),
                     _ => panic!(),
                 };
 
-                let mut left_body = self.block_map.remove(left).unwrap();
+                let mut left_body = self.block_map.remove(&left).unwrap();
                 left_body.remove_terminator();
 
                 let new_branch = StructuredCfg::Branch {
@@ -557,6 +613,7 @@ mod test {
 
                 println!("checking {} ... ", path.to_str().unwrap());
                 dbg!(root);
+                dbg!(builder);
             }
         }
     }
