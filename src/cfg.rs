@@ -16,6 +16,15 @@ pub enum Terminator {
     Br(String, usize, usize),
 }
 
+impl Terminator {
+    fn cond_value(self) -> Option<String> {
+        match self {
+            Self::Br(cond_value, _, _) => Some(cond_value),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum StructuredCfg {
     // terminates with jmp or br or ret
@@ -207,10 +216,7 @@ impl StructuredCfgBuilder {
 
                 let mut body = self.block_map.remove(&i).unwrap();
                 let terminator = body.remove_terminator().unwrap();
-                let cond_value = match terminator {
-                    Terminator::Br(cond_value, _, _) => cond_value,
-                    _ => panic!(),
-                };
+                let cond_value = terminator.cond_value().unwrap();
 
                 let new_branch = StructuredCfg::Branch {
                     cond_value,
@@ -255,10 +261,7 @@ impl StructuredCfgBuilder {
                     .unwrap()
                     .remove_terminator()
                     .unwrap();
-                let cond_value = match terminator {
-                    Terminator::Br(cond_value, _, _) => cond_value,
-                    _ => panic!(),
-                };
+                let cond_value = terminator.cond_value().unwrap();
 
                 left_body.remove_terminator();
                 right_body.remove_terminator();
@@ -280,10 +283,7 @@ impl StructuredCfgBuilder {
                     .unwrap()
                     .remove_terminator()
                     .unwrap();
-                let cond_value = match terminator {
-                    Terminator::Br(cond_value, _, _) => cond_value,
-                    _ => panic!(),
-                };
+                let cond_value = terminator.cond_value().unwrap();
 
                 let mut right_body = self.block_map.remove(&right).unwrap();
                 right_body.remove_terminator();
@@ -307,10 +307,7 @@ impl StructuredCfgBuilder {
                     .unwrap()
                     .remove_terminator()
                     .unwrap();
-                let cond_value = match terminator {
-                    Terminator::Br(cond_value, _, _) => cond_value,
-                    _ => panic!(),
-                };
+                let cond_value = terminator.cond_value().unwrap();
 
                 let mut left_body = self.block_map.remove(&left).unwrap();
                 left_body.remove_terminator();
