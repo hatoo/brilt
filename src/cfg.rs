@@ -36,13 +36,13 @@ pub enum StructuredCfg {
 }
 
 #[derive(Default, Debug)]
-struct StructuredCfgBuilder {
+pub struct StructuredCfgBuilder {
     block_map: HashMap<usize, StructuredCfg>,
     graph: DiGraphMap<usize, ()>,
 }
 
 impl StructuredCfg {
-    fn remove_terminator(&mut self) -> Option<Terminator> {
+    pub fn remove_terminator(&mut self) -> Option<Terminator> {
         match self {
             StructuredCfg::Block(_, t) => t.take(),
             StructuredCfg::Linear(blocks) => blocks.last_mut().unwrap().remove_terminator(),
@@ -51,7 +51,7 @@ impl StructuredCfg {
         }
     }
 
-    fn terminator(&self) -> Option<&Terminator> {
+    pub fn terminator(&self) -> Option<&Terminator> {
         match self {
             StructuredCfg::Block(_, t) => t.as_ref(),
             StructuredCfg::Linear(blocks) => blocks.last().unwrap().terminator(),
@@ -60,7 +60,7 @@ impl StructuredCfg {
         }
     }
 
-    fn flatten(&mut self) {
+    pub fn flatten(&mut self) {
         match self {
             Self::Linear(blocks) => {
                 let mut item: Option<(Vec<Code>, Option<Terminator>)> = None;
@@ -122,7 +122,7 @@ impl StructuredCfgBuilder {
             .insert(from, StructuredCfg::Linear(vec![from_body, to_body]));
     }
 
-    fn merge_linear(&mut self) -> bool {
+    pub fn merge_linear(&mut self) -> bool {
         let mut changed = false;
         for i in self.graph.nodes().collect::<Vec<_>>() {
             if !self.graph.contains_node(i) {
@@ -149,6 +149,10 @@ impl StructuredCfgBuilder {
                 continue;
             }
 
+            if to == 0 {
+                continue;
+            }
+
             self.merge(i, to);
 
             changed = true;
@@ -157,7 +161,7 @@ impl StructuredCfgBuilder {
         changed
     }
 
-    fn merge_branch(&mut self) -> bool {
+    pub fn merge_branch(&mut self) -> bool {
         let mut changed = false;
         for i in self.graph.nodes().collect::<Vec<_>>() {
             if !self.graph.contains_node(i) {
@@ -328,6 +332,10 @@ impl StructuredCfgBuilder {
 
         changed
     }
+
+    pub fn root(&self) -> StructuredCfg {
+        self.block_map[&0].clone()
+    }
 }
 
 #[derive(Default, Debug)]
@@ -454,7 +462,7 @@ impl Cfg {
         cfg
     }
 
-    fn into_structure_cfg_builder(self) -> StructuredCfgBuilder {
+    pub fn into_structure_cfg_builder(self) -> StructuredCfgBuilder {
         let block_map = self
             .block_map
             .into_iter()
@@ -556,14 +564,11 @@ mod test {
 
                 while builder.merge_linear() || builder.merge_branch() {}
 
-                let mut root = builder
-                    .block_map
-                    .remove(&builder.graph.nodes().next().unwrap())
-                    .unwrap();
+                let mut root = builder.root();
                 root.flatten();
 
                 dbg!(root);
-                dbg!(builder);
+                dbg!(&builder.graph);
             }
         }
     }
