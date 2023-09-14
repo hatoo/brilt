@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bril_rs::{Code, EffectOps, Instruction};
+use bril_rs::{Code, ConstOps, EffectOps, Instruction, Type, ValueOps};
 use petgraph::{prelude::DiGraphMap, visit::EdgeRef};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -330,6 +330,89 @@ impl StructuredCfgBuilder {
         changed
     }
 
+    pub fn merge_loop(&mut self) -> bool {
+        let mut changed = false;
+        for i in self.graph.nodes().collect::<Vec<_>>() {
+            if !self.graph.contains_node(i) {
+                continue;
+            }
+
+            let out = self.graph.neighbors(i).collect::<Vec<_>>();
+
+            if !out.contains(&i) {
+                continue;
+            }
+
+            match out.len() {
+                1 => {
+                    // unconditional infinite loop
+                    let mut body = self.block_map.remove(&i).unwrap();
+                    body.remove_terminator().unwrap();
+
+                    body = StructuredCfg::Loop {
+                        cond_value: "__true".to_string(),
+                        body_block: Box::new(StructuredCfg::Linear(vec![
+                            body,
+                            StructuredCfg::Block(
+                                vec![Code::Instruction(Instruction::Constant {
+                                    dest: "__true".to_string(),
+                                    op: ConstOps::Const,
+                                    const_type: Type::Bool,
+                                    value: bril_rs::Literal::Bool(true),
+                                })],
+                                None,
+                            ),
+                        ])),
+                    };
+
+                    self.graph.remove_edge(i, i);
+                    self.block_map.insert(i, body);
+                    changed = true;
+                }
+                2 => {
+                    let mut body = self.block_map.remove(&i).unwrap();
+                    let terminator = body.remove_terminator().unwrap();
+
+                    body = match terminator {
+                        Terminator::Br(cond_value, t, _f) => {
+                            if t == i {
+                                StructuredCfg::Loop {
+                                    cond_value,
+                                    body_block: Box::new(body),
+                                }
+                            } else {
+                                StructuredCfg::Loop {
+                                    cond_value: "__cond_value".to_string(),
+                                    body_block: Box::new(StructuredCfg::Linear(vec![
+                                        body,
+                                        StructuredCfg::Block(
+                                            vec![Code::Instruction(Instruction::Value {
+                                                dest: "__cond_value".to_string(),
+                                                op: ValueOps::Not,
+                                                args: vec![cond_value],
+                                                funcs: vec![],
+                                                labels: vec![],
+                                                op_type: Type::Bool,
+                                            })],
+                                            None,
+                                        ),
+                                    ])),
+                                }
+                            }
+                        }
+                        _ => unreachable!(),
+                    };
+
+                    self.graph.remove_edge(i, i);
+                    self.block_map.insert(i, body);
+                    changed = true;
+                }
+                _ => unreachable!(),
+            }
+        }
+        changed
+    }
+
     pub fn root(&self) -> StructuredCfg {
         self.block_map[&0].clone()
     }
@@ -559,7 +642,7 @@ mod test {
                 let cfg = Cfg::new(&function.instrs);
                 let mut builder = cfg.into_structure_cfg_builder();
 
-                while builder.merge_linear() || builder.merge_branch() {}
+                while builder.merge_linear() || builder.merge_branch() || builder.merge_loop() {}
 
                 let mut root = builder.root();
                 root.flatten();
