@@ -245,8 +245,12 @@ impl StructuredCfgBuilder {
                 let mut left_body = self.block_map.remove(&left).unwrap();
                 let mut right_body = self.block_map.remove(&right).unwrap();
 
-                let mut body = self.block_map.get_mut(&i).unwrap();
-                let terminator = body.remove_terminator().unwrap();
+                let terminator = self
+                    .block_map
+                    .get_mut(&i)
+                    .unwrap()
+                    .remove_terminator()
+                    .unwrap();
                 let cond_value = match terminator {
                     Terminator::Br(cond_value, _, _) => cond_value,
                     _ => panic!(),
@@ -521,8 +525,7 @@ mod test {
             let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
 
             for function in &mut program.functions {
-                let mut cfg = Cfg::new(&function.instrs);
-                // while cfg.merge_linear() {}
+                let cfg = Cfg::new(&function.instrs);
                 let codes = cfg.flatten();
                 function.instrs = codes;
             }
