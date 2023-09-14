@@ -158,10 +158,6 @@ impl StructuredCfgBuilder {
                 continue;
             }
 
-            if to == 0 {
-                continue;
-            }
-
             self.merge(i, to);
 
             changed = true;
