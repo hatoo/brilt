@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bril_rs::{Code, ConstOps, EffectOps, Instruction, Type, ValueOps};
-use petgraph::{prelude::DiGraphMap, visit::EdgeRef};
+use petgraph::prelude::DiGraphMap;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
 pub enum Label {
@@ -210,41 +210,106 @@ impl StructuredCfgBuilder {
                 continue;
             }
 
-            if self.graph.edges(left).count() == 0 && self.graph.edges(right).count() == 0 {
-                let left_body = self.block_map.remove(&left).unwrap();
-                let right_body = self.block_map.remove(&right).unwrap();
-
-                let mut body = self.block_map.remove(&i).unwrap();
-                let terminator = body.remove_terminator().unwrap();
-                let cond_value = terminator.cond_value().unwrap();
-
-                let new_branch = StructuredCfg::Branch {
-                    cond_value,
-                    then_block: Box::new(left_body),
-                    else_block: Box::new(right_body),
-                };
-
-                self.block_map
-                    .insert(i, StructuredCfg::Linear(vec![body, new_branch]));
-                self.graph.remove_node(left);
-                self.graph.remove_node(right);
-                changed = true;
-            }
-
             let left_succ = {
-                let left_succ = self.graph.edges(left).collect::<Vec<_>>();
-                if left_succ.len() != 1 {
+                let left_succ = self.graph.neighbors(left).collect::<Vec<_>>();
+                if left_succ.len() > 1 {
                     continue;
                 }
-                left_succ[0].target()
+                left_succ.first().copied()
             };
 
             let right_succ = {
-                let right_succ = self.graph.edges(right).collect::<Vec<_>>();
-                if right_succ.len() != 1 {
+                let right_succ = self.graph.neighbors(right).collect::<Vec<_>>();
+                if right_succ.len() > 1 {
                     continue;
                 }
-                right_succ[0].target()
+                right_succ.first().copied()
+            };
+
+            match (left_succ, right_succ) {
+                (None, None) => {
+                    let left_body = self.block_map.remove(&left).unwrap();
+                    let right_body = self.block_map.remove(&right).unwrap();
+
+                    let mut body = self.block_map.remove(&i).unwrap();
+                    let terminator = body.remove_terminator().unwrap();
+                    let cond_value = terminator.cond_value().unwrap();
+
+                    let new_branch = StructuredCfg::Branch {
+                        cond_value,
+                        then_block: Box::new(left_body),
+                        else_block: Box::new(right_body),
+                    };
+
+                    self.block_map
+                        .insert(i, StructuredCfg::Linear(vec![body, new_branch]));
+                    self.graph.remove_node(left);
+                    self.graph.remove_node(right);
+                    changed = true;
+                    continue;
+                }
+                (Some(left_succ), None) if left_succ != right => {
+                    let mut left_body = self.block_map.remove(&left).unwrap();
+                    let right_body = self.block_map.remove(&right).unwrap();
+
+                    left_body.remove_terminator();
+
+                    let terminator = self
+                        .block_map
+                        .get_mut(&i)
+                        .unwrap()
+                        .remove_terminator()
+                        .unwrap();
+                    let cond_value = terminator.cond_value().unwrap();
+
+                    let left_body = StructuredCfg::Branch {
+                        cond_value,
+                        then_block: Box::new(left_body),
+                        else_block: Box::new(right_body),
+                    };
+
+                    self.block_map.insert(left, left_body);
+
+                    self.graph.remove_node(right);
+                    self.merge(i, left);
+                    changed = true;
+                    continue;
+                }
+                (None, Some(right_succ)) if right_succ != left => {
+                    let left_body = self.block_map.remove(&left).unwrap();
+                    let mut right_body = self.block_map.remove(&right).unwrap();
+
+                    right_body.remove_terminator();
+
+                    let terminator = self
+                        .block_map
+                        .get_mut(&i)
+                        .unwrap()
+                        .remove_terminator()
+                        .unwrap();
+                    let cond_value = terminator.cond_value().unwrap();
+
+                    let right_body = StructuredCfg::Branch {
+                        cond_value,
+                        then_block: Box::new(left_body),
+                        else_block: Box::new(right_body),
+                    };
+
+                    self.block_map.insert(right, right_body);
+
+                    self.graph.remove_node(left);
+                    self.merge(i, right);
+                    changed = true;
+                    continue;
+                }
+                _ => {}
+            }
+
+            let Some(left_succ) = left_succ else {
+                continue;
+            };
+            let Some(right_succ) = right_succ else {
+                continue;
             };
 
             if left_succ == right_succ {
@@ -347,7 +412,7 @@ impl StructuredCfgBuilder {
                 1 => {
                     // unconditional infinite loop
                     let mut body = self.block_map.remove(&i).unwrap();
-                    body.remove_terminator().unwrap();
+                    body.remove_terminator();
 
                     body = StructuredCfg::Loop {
                         cond_value: "__true".to_string(),
