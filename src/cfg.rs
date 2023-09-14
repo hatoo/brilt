@@ -108,6 +108,20 @@ impl StructuredCfg {
                 }
                 *self = Self::Linear(v);
             }
+            StructuredCfg::Branch {
+                cond_value: _,
+                then_block,
+                else_block,
+            } => {
+                then_block.flatten();
+                else_block.flatten();
+            }
+            StructuredCfg::Loop {
+                cond_value: _,
+                body_block,
+            } => {
+                body_block.flatten();
+            }
             _ => {}
         }
     }
@@ -199,8 +213,7 @@ impl StructuredCfgBuilder {
             if self
                 .graph
                 .neighbors_directed(left, petgraph::Direction::Incoming)
-                .count()
-                != 1
+                .any(|t| t != left && t != right && t != i)
             {
                 continue;
             }
@@ -208,8 +221,7 @@ impl StructuredCfgBuilder {
             if self
                 .graph
                 .neighbors_directed(right, petgraph::Direction::Incoming)
-                .count()
-                != 1
+                .any(|t| t != left && t != right && t != i)
             {
                 continue;
             }
