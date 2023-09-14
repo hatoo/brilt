@@ -48,6 +48,7 @@ pub enum StructuredCfg {
 pub struct StructuredCfgBuilder {
     block_map: HashMap<usize, StructuredCfg>,
     graph: DiGraphMap<usize, ()>,
+    var_counter: usize,
 }
 
 impl StructuredCfg {
@@ -113,6 +114,13 @@ impl StructuredCfg {
 }
 
 impl StructuredCfgBuilder {
+    // TODO: Ensure to actually unique
+    fn new_var(&mut self, prefix: &str) -> String {
+        let var = format!("__v{}_{}", prefix, self.var_counter);
+        self.var_counter += 1;
+        var
+    }
+
     fn merge(&mut self, from: usize, to: usize) {
         for t in self.graph.neighbors(from).collect::<Vec<_>>() {
             self.graph.remove_edge(from, t);
@@ -410,13 +418,14 @@ impl StructuredCfgBuilder {
                     let mut body = self.block_map.remove(&i).unwrap();
                     body.remove_terminator();
 
+                    let true_var = self.new_var("true");
                     body = StructuredCfg::Loop {
-                        cond_value: "__true".to_string(),
+                        cond_value: true_var.clone(),
                         body_block: Box::new(StructuredCfg::Linear(vec![
                             body,
                             StructuredCfg::Block(
                                 vec![Code::Instruction(Instruction::Constant {
-                                    dest: "__true".to_string(),
+                                    dest: true_var.clone(),
                                     op: ConstOps::Const,
                                     const_type: Type::Bool,
                                     value: bril_rs::Literal::Bool(true),
@@ -442,13 +451,14 @@ impl StructuredCfgBuilder {
                                     body_block: Box::new(body),
                                 }
                             } else {
+                                let new_cond_value = self.new_var("cond");
                                 StructuredCfg::Loop {
-                                    cond_value: "__cond_value".to_string(),
+                                    cond_value: new_cond_value.clone(),
                                     body_block: Box::new(StructuredCfg::Linear(vec![
                                         body,
                                         StructuredCfg::Block(
                                             vec![Code::Instruction(Instruction::Value {
-                                                dest: "__cond_value".to_string(),
+                                                dest: new_cond_value.clone(),
                                                 op: ValueOps::Not,
                                                 args: vec![cond_value],
                                                 funcs: vec![],
@@ -640,6 +650,7 @@ impl Cfg {
         StructuredCfgBuilder {
             block_map,
             graph: self.graph,
+            var_counter: 0,
         }
     }
 
