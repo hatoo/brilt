@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+};
 
 use bril_rs::{Code, ConstOps, EffectOps, Instruction, Type, ValueOps};
 use petgraph::prelude::DiGraphMap;
@@ -677,6 +680,66 @@ impl Cfg {
     }
 }
 
+impl Display for Terminator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ret(None) => write!(f, "  ret;"),
+            Self::Ret(Some(v)) => write!(f, "  ret {};", v),
+            Self::Jmp(l) => write!(f, "  jmp {};", l),
+            Self::Br(v, l1, l2) => write!(f, "  br {} {} {};", v, l1, l2),
+        }
+    }
+}
+
+impl Display for StructuredCfg {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.display_impl(1, f)
+    }
+}
+
+impl StructuredCfg {
+    fn display_impl(&self, indent_level: usize, fmt: &mut Formatter) -> fmt::Result {
+        let tab = " ".repeat(indent_level * 2);
+        let ctab = " ".repeat(indent_level * 2 - 2);
+        match self {
+            Self::Block(codes, terminator) => {
+                for code in codes {
+                    writeln!(fmt, "{}{}", &ctab, code)?;
+                }
+                if let Some(terminator) = terminator {
+                    writeln!(fmt, "{}{}", &ctab, terminator)?;
+                }
+            }
+            Self::Linear(blocks) => {
+                for block in blocks {
+                    block.display_impl(indent_level, fmt)?;
+                }
+            }
+            Self::Branch {
+                cond_value,
+                then_block,
+                else_block,
+            } => {
+                writeln!(fmt, "{}if ({}) {{", &tab, cond_value)?;
+                then_block.display_impl(indent_level + 1, fmt)?;
+                writeln!(fmt, "{}}} else {{", &tab)?;
+                else_block.display_impl(indent_level + 1, fmt)?;
+                writeln!(fmt, "{}}}", &tab)?;
+            }
+            Self::Loop {
+                cond_value,
+                body_block,
+            } => {
+                writeln!(fmt, "{}do {{", &tab)?;
+                body_block.display_impl(indent_level + 1, fmt)?;
+                writeln!(fmt, "{}}} while ({});", &tab, cond_value)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::io::Cursor;
@@ -731,7 +794,7 @@ mod test {
                 let mut root = builder.root();
                 root.flatten();
 
-                dbg!(root);
+                eprintln!("{}", root);
                 dbg!(&builder.graph);
             }
         }

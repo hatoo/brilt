@@ -9,5 +9,5 @@ fn main() {
 
     let mut root = builder.root();
     root.flatten();
-    dbg!(root);
+    println!("{}", root);
 }
