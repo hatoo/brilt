@@ -795,7 +795,7 @@ mod test {
                 root.flatten();
 
                 eprintln!("{}", root);
-                assert_eq!(builder.block_map.len(), 1);
+                assert_eq!(builder.graph.neighbors(0).count(), 0);
             }
         }
     }
