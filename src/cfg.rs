@@ -777,7 +777,7 @@ mod test {
     fn test_scfg() {
         for entry in glob("bril/examples/test/df/*.bril")
             .unwrap()
-            .chain(glob("tests/*.bril").unwrap())
+            .chain(glob("bril/examples/test/dom/*.bril").unwrap())
         {
             let path = entry.unwrap();
             let src = std::fs::read_to_string(&path).unwrap();
@@ -795,7 +795,7 @@ mod test {
                 root.flatten();
 
                 eprintln!("{}", root);
-                dbg!(&builder.graph);
+                assert_eq!(builder.block_map.len(), 1);
             }
         }
     }
