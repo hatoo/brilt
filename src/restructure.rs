@@ -5,10 +5,7 @@ use crate::{
 use bimap::BiMap;
 use bril_rs::{Code, Instruction};
 use petgraph::prelude::DiGraphMap;
-use std::{
-    collections::{HashMap, HashSet},
-    ops::Index,
-};
+use std::collections::{HashMap, HashSet};
 
 pub struct RestructuredCfg {
     block_map: HashMap<usize, Vec<Code>>,
@@ -65,6 +62,10 @@ impl RestructuredCfg {
 
         self.block_map.insert(fan_v, vec![code]);
 
+        for to in vs {
+            self.graph.add_edge(fan_v, *to, ());
+        }
+
         (fan_v, cond_var)
     }
 
@@ -97,7 +98,7 @@ impl RestructuredCfg {
         self.graph.add_edge(from, new_to, ());
     }
 
-    fn loop_reconstruct_impl(&mut self, vs: &HashSet<usize>) {
+    fn loop_restructure_impl(&mut self, vs: &HashSet<usize>) {
         let entry_arcs = vs
             .iter()
             .flat_map(|&v| self.graph.edges_directed(v, petgraph::Direction::Incoming))
@@ -111,8 +112,6 @@ impl RestructuredCfg {
             .map(|e| (e.0, e.1))
             .filter(|e| vs.contains(&e.0))
             .collect::<HashSet<_>>();
-
-        /*
         let exit_arcs = vs
             .iter()
             .flat_map(|&v| self.graph.edges_directed(v, petgraph::Direction::Outgoing))
@@ -120,9 +119,8 @@ impl RestructuredCfg {
             .filter(|e| !vs.contains(&e.1))
             .collect::<HashSet<_>>();
         let exit_vs = exit_arcs.iter().map(|e| e.1).collect::<HashSet<_>>();
-        */
 
-        let single_entry = if entry_vs.len() > 1 {
+        let (single_entry, entry_cond_var, entry_index) = if entry_vs.len() > 0 {
             let mut entries = entry_vs.iter().copied().collect::<Vec<_>>();
             entries.sort();
             let entry_index = entries
@@ -145,36 +143,116 @@ impl RestructuredCfg {
                 codes.insert(codes.len() - 1, code);
                 self.replace_edge(from, to, fan_v);
             }
-            fan_v
+            (fan_v, fan_cond_var, entry_index)
         } else {
-            if let Some(v) = entry_vs.into_iter().next() {
-                v
-            } else {
-                // dead codes
-                for &v in vs {
-                    self.graph.remove_node(v);
-                }
-                return;
+            // dead codes
+            for &v in vs {
+                self.graph.remove_node(v);
             }
+            return;
         };
 
-        todo!()
+        let mut exits = exit_vs.iter().copied().collect::<Vec<_>>();
+        exits.sort();
+        let exit_index = exits
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (v, i))
+            .collect::<HashMap<_, _>>();
+
+        let (exit_fan, exit_fan_cond_var) = self.add_fan_node(&exits);
+        let (single_exit, exit_cond_var) = self.add_fan_node(&[exit_fan, single_entry]);
+
+        for (from, to) in repetition_arcs {
+            let code0 = Code::Instruction(Instruction::Constant {
+                dest: entry_cond_var.clone(),
+                op: bril_rs::ConstOps::Const,
+                const_type: bril_rs::Type::Int,
+                value: bril_rs::Literal::Int(entry_index[&to] as i64),
+            });
+            let code1 = Code::Instruction(Instruction::Constant {
+                dest: exit_cond_var.clone(),
+                op: bril_rs::ConstOps::Const,
+                const_type: bril_rs::Type::Bool,
+                value: bril_rs::Literal::Bool(true),
+            });
+
+            let codes = self.block_map.get_mut(&from).unwrap();
+            codes.insert(codes.len() - 1, code0);
+            codes.insert(codes.len() - 1, code1);
+            self.replace_edge(from, to, single_exit);
+        }
+
+        for (from, to) in exit_arcs {
+            let code0 = Code::Instruction(Instruction::Constant {
+                dest: exit_fan_cond_var.clone(),
+                op: bril_rs::ConstOps::Const,
+                const_type: bril_rs::Type::Int,
+                value: bril_rs::Literal::Int(exit_index[&to] as i64),
+            });
+            let code1 = Code::Instruction(Instruction::Constant {
+                dest: exit_cond_var.clone(),
+                op: bril_rs::ConstOps::Const,
+                const_type: bril_rs::Type::Bool,
+                value: bril_rs::Literal::Bool(false),
+            });
+            let codes = self.block_map.get_mut(&from).unwrap();
+            codes.insert(codes.len() - 1, code0);
+            codes.insert(codes.len() - 1, code1);
+            self.replace_edge(from, to, exit_fan);
+        }
+
+        self.graph.remove_edge(single_exit, single_entry);
+        self.loop_edge.add_edge(single_exit, single_entry, ());
     }
 
-    pub fn loop_reconstruct(&mut self) {
+    pub fn loop_restructure(&mut self) {
         loop {
             let scs = scc(&self.graph);
             let mut changed = false;
 
             for sc in scs {
                 if sc.len() > 1 {
-                    self.loop_reconstruct_impl(&sc);
+                    self.loop_restructure_impl(&sc);
                     changed = true;
                 }
             }
 
             if !changed {
                 break;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test::*;
+    use glob::glob;
+    use std::io::Cursor;
+
+    #[test]
+    // At least no panic
+    fn test_loop_restructure() {
+        for entry in glob("bril/examples/test/df/*.bril")
+            .unwrap()
+            .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+        {
+            let path = entry.unwrap();
+            let src = std::fs::read_to_string(&path).unwrap();
+            let json_before = bril2json(src.as_str());
+            let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
+
+            for function in &mut program.functions {
+                println!("checking {} ... ", path.to_str().unwrap());
+                let cfg = Cfg::new(&function.instrs);
+                dbg!(&cfg.graph);
+                let mut r = RestructuredCfg::new(cfg);
+                r.loop_restructure();
+
+                dbg!(&r.graph);
+                dbg!(&r.loop_edge);
             }
         }
     }
