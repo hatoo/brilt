@@ -5,7 +5,10 @@ use crate::{
 use bimap::BiMap;
 use bril_rs::{Code, Instruction};
 use petgraph::prelude::DiGraphMap;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Index,
+};
 
 pub struct RestructuredCfg {
     block_map: HashMap<usize, Vec<Code>>,
@@ -33,17 +36,17 @@ impl RestructuredCfg {
         name
     }
 
-    fn new_label(&mut self) -> (String, usize) {
+    fn new_label(&mut self) -> usize {
         let name = format!("__label_{}", self.var_counter);
         self.var_counter += 1;
         let v = self.label_map.len();
         self.label_map.insert(Label::Label(name.clone()), v);
 
-        (name, v)
+        v
     }
 
-    fn add_fan_node(&mut self, vs: &[usize]) -> (String, usize, String) {
-        let (fan_label, fan_v) = self.new_label();
+    fn add_fan_node(&mut self, vs: &[usize]) -> (usize, String) {
+        let fan_v = self.new_label();
         let cond_var = self.new_var();
 
         let code = Code::Instruction(Instruction::Effect {
@@ -62,7 +65,36 @@ impl RestructuredCfg {
 
         self.block_map.insert(fan_v, vec![code]);
 
-        (fan_label, fan_v, cond_var)
+        (fan_v, cond_var)
+    }
+
+    fn replace_edge(&mut self, from: usize, old_to: usize, new_to: usize) {
+        let codes = self.block_map.get_mut(&from).unwrap();
+        let old_to_label = self
+            .label_map
+            .get_by_right(&old_to)
+            .unwrap()
+            .label()
+            .unwrap();
+        let new_to_label = self
+            .label_map
+            .get_by_right(&new_to)
+            .unwrap()
+            .label()
+            .unwrap();
+        match codes.last_mut().unwrap() {
+            Code::Instruction(Instruction::Effect { labels, .. }) => {
+                for l in labels.iter_mut() {
+                    if l == old_to_label {
+                        *l = new_to_label.to_string();
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+
+        self.graph.remove_edge(from, old_to);
+        self.graph.add_edge(from, new_to, ());
     }
 
     fn loop_reconstruct_impl(&mut self, vs: &HashSet<usize>) {
@@ -73,13 +105,6 @@ impl RestructuredCfg {
             .filter(|e| !vs.contains(&e.0))
             .collect::<HashSet<_>>();
         let entry_vs = entry_arcs.iter().map(|e| e.1).collect::<HashSet<_>>();
-        let exit_arcs = vs
-            .iter()
-            .flat_map(|&v| self.graph.edges_directed(v, petgraph::Direction::Outgoing))
-            .map(|e| (e.0, e.1))
-            .filter(|e| !vs.contains(&e.1))
-            .collect::<HashSet<_>>();
-        let exit_vs = exit_arcs.iter().map(|e| e.1).collect::<HashSet<_>>();
         let repetition_arcs = entry_vs
             .iter()
             .flat_map(|&e| self.graph.edges_directed(e, petgraph::Direction::Incoming))
@@ -87,12 +112,51 @@ impl RestructuredCfg {
             .filter(|e| vs.contains(&e.0))
             .collect::<HashSet<_>>();
 
-        if entry_vs.len() > 1 {
+        /*
+        let exit_arcs = vs
+            .iter()
+            .flat_map(|&v| self.graph.edges_directed(v, petgraph::Direction::Outgoing))
+            .map(|e| (e.0, e.1))
+            .filter(|e| !vs.contains(&e.1))
+            .collect::<HashSet<_>>();
+        let exit_vs = exit_arcs.iter().map(|e| e.1).collect::<HashSet<_>>();
+        */
+
+        let single_entry = if entry_vs.len() > 1 {
             let mut entries = entry_vs.iter().copied().collect::<Vec<_>>();
             entries.sort();
+            let entry_index = entries
+                .iter()
+                .enumerate()
+                .map(|(i, &v)| (v, i))
+                .collect::<HashMap<_, _>>();
 
-            let (fan_label, fan_v, fan_cond_var) = self.add_fan_node(&entries);
-        }
+            let (fan_v, fan_cond_var) = self.add_fan_node(&entries);
+
+            // Update incoming edges to entries
+            for (from, to) in entry_arcs {
+                let code = Code::Instruction(Instruction::Constant {
+                    dest: fan_cond_var.clone(),
+                    op: bril_rs::ConstOps::Const,
+                    const_type: bril_rs::Type::Int,
+                    value: bril_rs::Literal::Int(entry_index[&to] as i64),
+                });
+                let codes = self.block_map.get_mut(&from).unwrap();
+                codes.insert(codes.len() - 1, code);
+                self.replace_edge(from, to, fan_v);
+            }
+            fan_v
+        } else {
+            if let Some(v) = entry_vs.into_iter().next() {
+                v
+            } else {
+                // dead codes
+                for &v in vs {
+                    self.graph.remove_node(v);
+                }
+                return;
+            }
+        };
 
         todo!()
     }

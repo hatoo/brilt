@@ -12,6 +12,15 @@ pub enum Label {
     Label(String),
 }
 
+impl Label {
+    pub fn label(&self) -> Option<&str> {
+        match self {
+            Self::Root => None,
+            Self::Label(s) => Some(s),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Terminator {
     Ret(Option<String>),
