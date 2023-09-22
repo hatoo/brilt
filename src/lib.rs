@@ -1,5 +1,6 @@
 pub mod cfg;
 pub mod graph;
+pub mod restructure;
 
 #[cfg(test)]
 mod test {

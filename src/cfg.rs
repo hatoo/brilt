@@ -506,9 +506,9 @@ impl StructuredCfgBuilder {
 
 #[derive(Default, Debug)]
 pub struct Cfg {
-    block_map: HashMap<usize, Vec<Code>>,
-    graph: DiGraphMap<usize, ()>,
-    label_map: HashMap<Label, usize>,
+    pub(crate) block_map: HashMap<usize, Vec<Code>>,
+    pub(crate) graph: DiGraphMap<usize, ()>,
+    pub(crate) label_map: HashMap<Label, usize>,
 }
 
 impl Cfg {
