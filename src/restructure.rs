@@ -232,7 +232,7 @@ impl RestructuredCfg {
         }
     }
 
-    pub fn loop_restructure(&mut self) {
+    fn loop_restructure(&mut self) {
         self.loop_restructure_rec(&self.graph.nodes().collect());
     }
 
@@ -411,8 +411,13 @@ impl RestructuredCfg {
         }
     }
 
-    pub fn branch_restructure(&mut self) {
+    fn branch_restructure(&mut self) {
         self.branch_restructure_rec(0, &self.graph.nodes().collect());
+    }
+
+    pub fn restructure(&mut self) {
+        self.loop_restructure();
+        self.branch_restructure();
     }
 }
 
@@ -425,7 +430,7 @@ mod test {
 
     #[test]
     // At least no panic
-    fn test_loop_restructure() {
+    fn test_restructure() {
         for entry in glob("bril/examples/test/df/*.bril")
             .unwrap()
             .chain(glob("bril/examples/test/dom/*.bril").unwrap())
@@ -440,8 +445,7 @@ mod test {
                 let cfg = Cfg::new(&function.instrs);
                 dbg!(&cfg.graph);
                 let mut r = RestructuredCfg::new(cfg);
-                r.loop_restructure();
-
+                r.restructure();
                 dbg!(&r.graph);
                 dbg!(&r.loop_edge);
             }
