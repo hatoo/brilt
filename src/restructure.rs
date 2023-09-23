@@ -3,8 +3,8 @@ use crate::{
     graph::scc_sub,
 };
 use bimap::BiMap;
-use bril_rs::{Code, Instruction};
-use petgraph::prelude::DiGraphMap;
+use bril_rs::{Code, ConstOps, Instruction, Literal, Type};
+use petgraph::{prelude::DiGraphMap, Direction};
 use std::collections::{HashMap, HashSet};
 
 pub struct RestructuredCfg {
@@ -65,6 +65,25 @@ impl RestructuredCfg {
         }
 
         fan_v
+    }
+
+    fn new_null_node(&mut self) -> usize {
+        let v = self.new_label();
+        self.block_map.insert(v, vec![]);
+        v
+    }
+
+    fn new_goto_node(&mut self, to_index: usize, to: usize) -> usize {
+        let v = self.new_label();
+        let code = Code::Instruction(Instruction::Constant {
+            dest: Self::VAR_P.to_string(),
+            op: ConstOps::Const,
+            const_type: Type::Int,
+            value: Literal::Int(to_index as i64),
+        });
+        self.block_map.insert(v, vec![code]);
+        self.graph.add_edge(v, to, ());
+        v
     }
 
     fn replace_edge(&mut self, from: usize, old_to: usize, new_to: usize) {
@@ -215,6 +234,167 @@ impl RestructuredCfg {
 
     pub fn loop_restructure(&mut self) {
         self.loop_restructure_rec(&self.graph.nodes().collect());
+    }
+
+    // Assume graph's a DAG
+    fn dominants(&self, node: usize) -> HashSet<usize> {
+        let mut dominants = HashSet::new();
+        dominants.insert(node);
+
+        let mut stack = vec![node];
+
+        while let Some(v) = stack.pop() {
+            for n in self.graph.neighbors(v) {
+                dominants.insert(n);
+                stack.push(n);
+            }
+        }
+
+        dominants
+    }
+
+    // Call this after loop_restructure
+    // graph's now a DAG
+    pub fn branch_restructure(&mut self) {
+        let mut node = *self.label_map.get_by_left(&Label::Root).unwrap();
+
+        loop {
+            let succs = self.graph.neighbors(node).collect::<Vec<_>>();
+
+            if succs.len() == 0 {
+                break;
+            }
+
+            if succs.len() == 1 {
+                node = succs[0];
+                continue;
+            }
+
+            // brnach
+            let dominants = succs
+                .into_iter()
+                .map(|s| self.dominants(s))
+                .collect::<Vec<_>>();
+
+            let tails = dominants.iter().fold(HashSet::new(), |acc, d| {
+                acc.intersection(d).copied().collect()
+            });
+
+            let branches = dominants
+                .iter()
+                .map(|d| d.difference(&tails).copied().collect::<HashSet<_>>())
+                .collect::<Vec<_>>();
+
+            let continuation_points: HashSet<usize> = branches
+                .iter()
+                .flat_map(|b| {
+                    b.iter()
+                        .flat_map(|&d| self.graph.neighbors(d))
+                        .filter(|s| tails.contains(s))
+                })
+                .collect();
+
+            let succ_of_aux = continuation_points.iter().filter(|&&c| {
+                self.graph
+                    .neighbors_directed(c, Direction::Incoming)
+                    .any(|p| {
+                        self.block_map
+                            .get(&p)
+                            .and_then(|codes| codes.last())
+                            .map(|code| match code {
+                                Code::Instruction(Instruction::Constant { dest, .. }) => {
+                                    dest == Self::VAR_P
+                                }
+                                _ => false,
+                            })
+                            == Some(true)
+                    })
+            });
+
+            let pull: HashSet<usize> = succ_of_aux
+                .into_iter()
+                .filter_map(|&n| {
+                    let preds = self
+                        .graph
+                        .neighbors_directed(n, Direction::Incoming)
+                        .collect::<HashSet<_>>();
+                    if !branches.iter().any(|b| preds.iter().all(|p| b.contains(p))) {
+                        Some(preds)
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect();
+
+            let continuation_points = continuation_points
+                .union(&pull)
+                .copied()
+                .collect::<HashSet<_>>();
+
+            let branches = branches
+                .into_iter()
+                .map(|b| b.difference(&pull).copied().collect::<Vec<_>>())
+                .collect::<Vec<_>>();
+
+            drop(dominants);
+            drop(tails);
+
+            if continuation_points.len() == 0 {
+                let null_node = self.new_null_node();
+
+                for b in branches {
+                    for n in b {
+                        if self.graph.neighbors(n).count() == 0 {
+                            self.graph.add_edge(n, null_node, ());
+                        }
+                    }
+                }
+                return;
+            }
+
+            if continuation_points.len() == 1 {
+                node = *continuation_points.iter().next().unwrap();
+                continue;
+            }
+
+            let mut continuation_points_array =
+                continuation_points.iter().copied().collect::<Vec<_>>();
+            continuation_points_array.sort();
+            let continuation_index = continuation_points_array
+                .iter()
+                .enumerate()
+                .map(|(i, &v)| (v, i))
+                .collect::<HashMap<_, _>>();
+
+            let fan_v = self.add_fan_node(Self::VAR_P, &continuation_points_array);
+
+            for b in branches.into_iter().filter(|b| !b.is_empty()) {
+                let null_node = self.new_null_node();
+                self.graph.add_edge(null_node, fan_v, ());
+                for n in b {
+                    for c in self
+                        .graph
+                        .neighbors(n)
+                        .filter(|s| continuation_points.contains(s))
+                        .collect::<Vec<_>>()
+                    {
+                        let goto_c = self.new_goto_node(continuation_index[&c], null_node);
+                        self.replace_edge(n, c, goto_c);
+                    }
+                }
+            }
+
+            for c in self
+                .graph
+                .neighbors(node)
+                .filter(|s| continuation_points.contains(s))
+                .collect::<Vec<_>>()
+            {
+                let goto_c = self.new_goto_node(continuation_index[&c], fan_v);
+                self.replace_edge(node, c, goto_c);
+            }
+        }
     }
 }
 
