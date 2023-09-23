@@ -12,6 +12,15 @@ pub enum Label {
     Label(String),
 }
 
+impl Display for Label {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Root => write!(f, "root"),
+            Self::Label(s) => write!(f, "{}", s),
+        }
+    }
+}
+
 impl Label {
     pub fn label(&self) -> Option<&str> {
         match self {

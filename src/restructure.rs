@@ -429,6 +429,15 @@ mod test {
     use glob::glob;
     use std::io::Cursor;
 
+    fn show_graph(graph: &DiGraphMap<usize, ()>, label_map: &BiMap<Label, usize>) {
+        for n in graph.nodes() {
+            println!("{}: ", label_map.get_by_right(&n).unwrap());
+            for s in graph.neighbors(n) {
+                println!("  -> {}", label_map.get_by_right(&s).unwrap());
+            }
+        }
+    }
+
     #[test]
     // At least no panic
     fn test_restructure() {
@@ -444,11 +453,15 @@ mod test {
             for function in &mut program.functions {
                 println!("checking {} ... ", path.to_str().unwrap());
                 let cfg = Cfg::new(&function.instrs);
-                dbg!(&cfg.graph);
+                // dbg!(&cfg.graph);
                 let mut r = RestructuredCfg::new(cfg);
                 r.restructure();
-                dbg!(&r.graph);
-                dbg!(&r.loop_edge);
+
+                show_graph(&r.graph, &r.label_map);
+                eprintln!("loop:");
+                show_graph(&r.loop_edge, &r.label_map);
+                // dbg!(&r.graph);
+                // dbg!(&r.loop_edge);
             }
         }
     }
