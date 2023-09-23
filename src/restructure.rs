@@ -1,6 +1,6 @@
 use crate::{
     cfg::{Cfg, Label},
-    graph::scc,
+    graph::scc_sub,
 };
 use bimap::BiMap;
 use bril_rs::{Code, Instruction};
@@ -204,22 +204,17 @@ impl RestructuredCfg {
         self.loop_edge.add_edge(single_exit, single_entry, ());
     }
 
-    pub fn loop_restructure(&mut self) {
-        loop {
-            let scs = scc(&self.graph);
-            let mut changed = false;
-
-            for sc in scs {
-                if sc.len() > 1 {
-                    self.loop_restructure_impl(&sc);
-                    changed = true;
-                }
-            }
-
-            if !changed {
-                break;
+    fn loop_restructure_rec(&mut self, sub_vs: &HashSet<usize>) {
+        for sc in scc_sub(&self.graph, sub_vs) {
+            if sc.len() > 1 {
+                self.loop_restructure_impl(&sc);
+                self.loop_restructure_rec(&sc);
             }
         }
+    }
+
+    pub fn loop_restructure(&mut self) {
+        self.loop_restructure_rec(&self.graph.nodes().collect());
     }
 }
 
