@@ -12,10 +12,15 @@ pub struct RestructuredCfg {
     graph: DiGraphMap<usize, ()>,
     label_map: BiMap<Label, usize>,
     loop_edge: DiGraphMap<usize, ()>,
-    var_counter: usize,
+    label_counter: usize,
 }
 
 impl RestructuredCfg {
+    // Those must not be used in the original cfg
+    const VAR_Q: &'static str = "__var_q";
+    const VAR_R: &'static str = "__var_r";
+    const VAR_P: &'static str = "__var_p";
+
     pub fn new(cfg: Cfg) -> Self {
         let loop_edge = DiGraphMap::new();
         Self {
@@ -23,31 +28,24 @@ impl RestructuredCfg {
             graph: cfg.graph,
             label_map: cfg.label_map.into_iter().collect(),
             loop_edge,
-            var_counter: 0,
+            label_counter: 0,
         }
     }
 
-    fn new_var(&mut self) -> String {
-        let name = format!("__var_{}", self.var_counter);
-        self.var_counter += 1;
-        name
-    }
-
     fn new_label(&mut self) -> usize {
-        let name = format!("__label_{}", self.var_counter);
-        self.var_counter += 1;
+        let name = format!("__label_{}", self.label_counter);
+        self.label_counter += 1;
         let v = self.label_map.len();
         self.label_map.insert(Label::Label(name.clone()), v);
 
         v
     }
 
-    fn add_fan_node(&mut self, vs: &[usize]) -> (usize, String) {
+    fn add_fan_node(&mut self, cond_var: &str, vs: &[usize]) -> usize {
         let fan_v = self.new_label();
-        let cond_var = self.new_var();
 
         let code = Code::Instruction(Instruction::Effect {
-            args: vec![cond_var.clone()],
+            args: vec![cond_var.to_string()],
             funcs: vec![],
             labels: vs
                 .iter()
@@ -66,7 +64,7 @@ impl RestructuredCfg {
             self.graph.add_edge(fan_v, *to, ());
         }
 
-        (fan_v, cond_var)
+        fan_v
     }
 
     fn replace_edge(&mut self, from: usize, old_to: usize, new_to: usize) {
@@ -120,7 +118,7 @@ impl RestructuredCfg {
             .collect::<HashSet<_>>();
         let exit_vs = exit_arcs.iter().map(|e| e.1).collect::<HashSet<_>>();
 
-        let (single_entry, entry_cond_var, entry_index) = if entry_vs.len() > 0 {
+        let (single_entry, entry_index) = if entry_vs.len() > 0 {
             let mut entries = entry_vs.iter().copied().collect::<Vec<_>>();
             entries.sort();
             let entry_index = entries
@@ -129,12 +127,12 @@ impl RestructuredCfg {
                 .map(|(i, &v)| (v, i))
                 .collect::<HashMap<_, _>>();
 
-            let (fan_v, fan_cond_var) = self.add_fan_node(&entries);
+            let fan_v = self.add_fan_node(Self::VAR_Q, &entries);
 
             // Update incoming edges to entries
             for (from, to) in entry_arcs {
                 let code = Code::Instruction(Instruction::Constant {
-                    dest: fan_cond_var.clone(),
+                    dest: Self::VAR_Q.to_string(),
                     op: bril_rs::ConstOps::Const,
                     const_type: bril_rs::Type::Int,
                     value: bril_rs::Literal::Int(entry_index[&to] as i64),
@@ -143,7 +141,7 @@ impl RestructuredCfg {
                 codes.insert(codes.len() - 1, code);
                 self.replace_edge(from, to, fan_v);
             }
-            (fan_v, fan_cond_var, entry_index)
+            (fan_v, entry_index)
         } else {
             // dead codes
             for &v in vs {
@@ -160,18 +158,18 @@ impl RestructuredCfg {
             .map(|(i, &v)| (v, i))
             .collect::<HashMap<_, _>>();
 
-        let (exit_fan, exit_fan_cond_var) = self.add_fan_node(&exits);
-        let (single_exit, exit_cond_var) = self.add_fan_node(&[exit_fan, single_entry]);
+        let exit_fan = self.add_fan_node(Self::VAR_Q, &exits);
+        let single_exit = self.add_fan_node(Self::VAR_R, &[exit_fan, single_entry]);
 
         for (from, to) in repetition_arcs {
             let code0 = Code::Instruction(Instruction::Constant {
-                dest: entry_cond_var.clone(),
+                dest: Self::VAR_Q.to_string(),
                 op: bril_rs::ConstOps::Const,
                 const_type: bril_rs::Type::Int,
                 value: bril_rs::Literal::Int(entry_index[&to] as i64),
             });
             let code1 = Code::Instruction(Instruction::Constant {
-                dest: exit_cond_var.clone(),
+                dest: Self::VAR_R.to_string(),
                 op: bril_rs::ConstOps::Const,
                 const_type: bril_rs::Type::Bool,
                 value: bril_rs::Literal::Bool(true),
@@ -185,13 +183,13 @@ impl RestructuredCfg {
 
         for (from, to) in exit_arcs {
             let code0 = Code::Instruction(Instruction::Constant {
-                dest: exit_fan_cond_var.clone(),
+                dest: Self::VAR_Q.to_string(),
                 op: bril_rs::ConstOps::Const,
                 const_type: bril_rs::Type::Int,
                 value: bril_rs::Literal::Int(exit_index[&to] as i64),
             });
             let code1 = Code::Instruction(Instruction::Constant {
-                dest: exit_cond_var.clone(),
+                dest: Self::VAR_R.to_string(),
                 op: bril_rs::ConstOps::Const,
                 const_type: bril_rs::Type::Bool,
                 value: bril_rs::Literal::Bool(false),
