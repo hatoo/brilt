@@ -224,8 +224,12 @@ impl RestructuredCfg {
             let codes = self.block_map.get_mut(&from).unwrap();
             codes.insert(codes.len() - 1, code0);
             codes.insert(codes.len() - 1, code1);
-            self.replace_edge(from, to, exit_fan);
+            self.replace_edge(from, to, single_exit);
         }
+        dbg!(exit_vs
+            .iter()
+            .map(|&v| self.label_map.get_by_right(&v).unwrap())
+            .collect::<Vec<_>>());
 
         self.graph.remove_edge(single_exit, single_entry);
         self.loop_edge.add_edge(single_exit, single_entry, ());
@@ -234,6 +238,10 @@ impl RestructuredCfg {
     fn loop_restructure_rec(&mut self, sub_vs: &HashSet<usize>) {
         for sc in scc_sub(&self.graph, sub_vs) {
             if sc.len() > 1 {
+                dbg!(sc
+                    .iter()
+                    .map(|&v| self.label_map.get_by_right(&v).unwrap())
+                    .collect::<Vec<_>>());
                 self.loop_restructure_impl(&sc);
                 self.loop_restructure_rec(&sc);
             }
@@ -491,11 +499,15 @@ impl RestructuredCfg {
                             .label_map
                             .get_by_left(&Label::Label(l.clone()))
                             .unwrap();
-                        (v, self.structure_rec(&mut v, level + 1))
+                        let s = self.structure_rec(&mut v, level + 1);
+                        (v, s)
                     })
                     .collect();
 
-                // dbg!(&branches);
+                dbg!(branches
+                    .iter()
+                    .map(|(v, _)| self.label_map.get_by_right(v).unwrap())
+                    .collect::<Vec<_>>());
                 // debug_assert!(branches.iter().all(|(v, _)| *v == branches[0].0));
                 *start = branches[0].0;
                 StructureAnalysis::Branch(
