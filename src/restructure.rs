@@ -237,7 +237,7 @@ impl RestructuredCfg {
     }
 
     // Assume graph's a DAG
-    fn dominants(&self, node: usize) -> HashSet<usize> {
+    fn dominants(&self, node: usize, sub_vs: &HashSet<usize>) -> HashSet<usize> {
         let mut dominants = HashSet::new();
         dominants.insert(node);
 
@@ -245,8 +245,10 @@ impl RestructuredCfg {
 
         while let Some(v) = stack.pop() {
             for n in self.graph.neighbors(v) {
-                dominants.insert(n);
-                stack.push(n);
+                if sub_vs.contains(&n) {
+                    dominants.insert(n);
+                    stack.push(n);
+                }
             }
         }
 
@@ -255,10 +257,10 @@ impl RestructuredCfg {
 
     // Call this after loop_restructure
     // graph's now a DAG
-    pub fn branch_restructure(&mut self) {
-        let mut node = *self.label_map.get_by_left(&Label::Root).unwrap();
+    fn branch_restructure_rec(&mut self, start: usize, sub_vs: &HashSet<usize>) {
+        let mut node = start;
 
-        loop {
+        while sub_vs.contains(&node) {
             let succs = self.graph.neighbors(node).collect::<Vec<_>>();
 
             if succs.len() == 0 {
@@ -273,21 +275,21 @@ impl RestructuredCfg {
             // brnach
             let dominants = succs
                 .into_iter()
-                .map(|s| self.dominants(s))
+                .map(|s| (s, self.dominants(s, sub_vs)))
                 .collect::<Vec<_>>();
 
-            let tails = dominants.iter().fold(HashSet::new(), |acc, d| {
+            let tails = dominants.iter().fold(HashSet::new(), |acc, (_, d)| {
                 acc.intersection(d).copied().collect()
             });
 
             let branches = dominants
                 .iter()
-                .map(|d| d.difference(&tails).copied().collect::<HashSet<_>>())
+                .map(|(s, d)| (*s, d.difference(&tails).copied().collect::<HashSet<_>>()))
                 .collect::<Vec<_>>();
 
             let continuation_points: HashSet<usize> = branches
                 .iter()
-                .flat_map(|b| {
+                .flat_map(|(_, b)| {
                     b.iter()
                         .flat_map(|&d| self.graph.neighbors(d))
                         .filter(|s| tails.contains(s))
@@ -318,7 +320,10 @@ impl RestructuredCfg {
                         .graph
                         .neighbors_directed(n, Direction::Incoming)
                         .collect::<HashSet<_>>();
-                    if !branches.iter().any(|b| preds.iter().all(|p| b.contains(p))) {
+                    if !branches
+                        .iter()
+                        .any(|(_, b)| preds.iter().all(|p| b.contains(p)))
+                    {
                         Some(preds)
                     } else {
                         None
@@ -334,7 +339,7 @@ impl RestructuredCfg {
 
             let branches = branches
                 .into_iter()
-                .map(|b| b.difference(&pull).copied().collect::<Vec<_>>())
+                .map(|(s, b)| (s, b.difference(&pull).copied().collect::<HashSet<_>>()))
                 .collect::<Vec<_>>();
 
             drop(dominants);
@@ -343,7 +348,7 @@ impl RestructuredCfg {
             if continuation_points.len() == 0 {
                 let null_node = self.new_null_node();
 
-                for b in branches {
+                for (_, b) in branches {
                     for n in b {
                         if self.graph.neighbors(n).count() == 0 {
                             self.graph.add_edge(n, null_node, ());
@@ -369,10 +374,13 @@ impl RestructuredCfg {
 
             let fan_v = self.add_fan_node(Self::VAR_P, &continuation_points_array);
 
-            for b in branches.into_iter().filter(|b| !b.is_empty()) {
+            for (branch_start, mut b) in branches.into_iter().filter(|(_, b)| !b.is_empty()) {
                 let null_node = self.new_null_node();
                 self.graph.add_edge(null_node, fan_v, ());
-                for n in b {
+
+                let mut added = Vec::new();
+
+                for &n in b.iter() {
                     for c in self
                         .graph
                         .neighbors(n)
@@ -381,8 +389,14 @@ impl RestructuredCfg {
                     {
                         let goto_c = self.new_goto_node(continuation_index[&c], null_node);
                         self.replace_edge(n, c, goto_c);
+                        added.push(goto_c)
                     }
                 }
+
+                b.insert(null_node);
+                b.extend(added);
+
+                self.branch_restructure_rec(branch_start, &b);
             }
 
             for c in self
@@ -395,6 +409,10 @@ impl RestructuredCfg {
                 self.replace_edge(node, c, goto_c);
             }
         }
+    }
+
+    pub fn branch_restructure(&mut self) {
+        self.branch_restructure_rec(0, &self.graph.nodes().collect());
     }
 }
 
