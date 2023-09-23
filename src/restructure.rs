@@ -408,6 +408,7 @@ impl RestructuredCfg {
                 let goto_c = self.new_goto_node(continuation_index[&c], fan_v);
                 self.replace_edge(node, c, goto_c);
             }
+            node = fan_v;
         }
     }
 
