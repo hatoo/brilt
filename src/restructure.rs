@@ -458,7 +458,10 @@ impl RestructuredCfg {
 
             let succs = self.graph.neighbors(*start).collect::<Vec<_>>();
 
+            let s0 = StructureAnalysis::Block(self.block_map.get(&start).unwrap().clone());
+
             if succs.len() == 0 {
+                linear.push(s0);
                 dbg!("exit");
                 break;
             }
@@ -469,17 +472,16 @@ impl RestructuredCfg {
                 .count()
                 > 0;
             let s = if succs.len() == 1 {
-                let s = StructureAnalysis::Block(self.block_map.get(&start).unwrap().clone());
                 if is_loop_entry {
                     dbg!("loop enter", succs.len());
                     *start = succs[0];
                     let r =
-                        StructureAnalysis::Linear(vec![s, self.structure_rec(start, level + 1)]);
+                        StructureAnalysis::Linear(vec![s0, self.structure_rec(start, level + 1)]);
                     dbg!(*start);
                     r
                 } else {
                     *start = succs[0];
-                    s
+                    s0
                 }
             } else {
                 dbg!("enter", succs.len());
@@ -510,10 +512,13 @@ impl RestructuredCfg {
                     .collect::<Vec<_>>());
                 // debug_assert!(branches.iter().all(|(v, _)| *v == branches[0].0));
                 *start = branches[0].0;
-                StructureAnalysis::Branch(
-                    cond_var.clone(),
-                    branches.into_iter().map(|(_, s)| s).collect(),
-                )
+                StructureAnalysis::Linear(vec![
+                    s0,
+                    StructureAnalysis::Branch(
+                        cond_var.clone(),
+                        branches.into_iter().map(|(_, s)| s).collect(),
+                    ),
+                ])
             };
 
             if is_loop_entry {
