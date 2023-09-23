@@ -15,6 +15,14 @@ pub struct RestructuredCfg {
     label_counter: usize,
 }
 
+#[derive(Debug, Clone)]
+pub enum StructureAnalysis {
+    Block(Vec<Code>),
+    Linear(Vec<StructureAnalysis>),
+    Loop(Box<StructureAnalysis>),
+    Branch(String, Vec<StructureAnalysis>),
+}
+
 impl RestructuredCfg {
     // Those must not be used in the original cfg
     const VAR_Q: &'static str = "__var_q";
@@ -420,6 +428,104 @@ impl RestructuredCfg {
         self.loop_restructure();
         self.branch_restructure();
     }
+
+    fn structure_rec(&self, start: &mut usize, level: usize) -> StructureAnalysis {
+        let mut linear = Vec::new();
+        let mut last_exit_branch = false;
+
+        loop {
+            dbg!(self.label_map.get_by_right(start).unwrap(), level);
+            if self.loop_edge.neighbors(*start).count() > 0
+                || (self
+                    .graph
+                    .neighbors_directed(*start, Direction::Incoming)
+                    .count()
+                    > 1
+                    && !last_exit_branch)
+            {
+                dbg!("exit");
+                break;
+            }
+            last_exit_branch = false;
+
+            let succs = self.graph.neighbors(*start).collect::<Vec<_>>();
+
+            if succs.len() == 0 {
+                dbg!("exit");
+                break;
+            }
+
+            let is_loop_entry = self
+                .loop_edge
+                .neighbors_directed(*start, Direction::Incoming)
+                .count()
+                > 0;
+            let s = if succs.len() == 1 {
+                let s = StructureAnalysis::Block(self.block_map.get(&start).unwrap().clone());
+                if is_loop_entry {
+                    dbg!("loop enter", succs.len());
+                    *start = succs[0];
+                    let r =
+                        StructureAnalysis::Linear(vec![s, self.structure_rec(start, level + 1)]);
+                    dbg!(*start);
+                    r
+                } else {
+                    *start = succs[0];
+                    s
+                }
+            } else {
+                dbg!("enter", succs.len());
+                last_exit_branch = true;
+                let (cond_var, branch_labels) =
+                    match self.block_map.get(start).unwrap().last().unwrap() {
+                        Code::Instruction(Instruction::Effect { labels, args, .. }) => {
+                            (&args[0], labels)
+                        }
+                        _ => unreachable!(),
+                    };
+
+                let branches: Vec<_> = branch_labels
+                    .iter()
+                    .map(|l| {
+                        let mut v = *self
+                            .label_map
+                            .get_by_left(&Label::Label(l.clone()))
+                            .unwrap();
+                        (v, self.structure_rec(&mut v, level + 1))
+                    })
+                    .collect();
+
+                // dbg!(&branches);
+                // debug_assert!(branches.iter().all(|(v, _)| *v == branches[0].0));
+                *start = branches[0].0;
+                StructureAnalysis::Branch(
+                    cond_var.clone(),
+                    branches.into_iter().map(|(_, s)| s).collect(),
+                )
+            };
+
+            if is_loop_entry {
+                linear.push(StructureAnalysis::Loop(Box::new(s)));
+                // now on loop exit
+                dbg!(self.label_map.get_by_right(start).unwrap());
+                debug_assert!(self.loop_edge.neighbors(*start).count() == 1);
+                *start = self.graph.neighbors(*start).next().unwrap();
+            } else {
+                linear.push(s);
+            }
+        }
+
+        if linear.len() == 1 {
+            linear.pop().unwrap()
+        } else {
+            StructureAnalysis::Linear(linear)
+        }
+    }
+
+    pub fn structure_analysys(&self) -> StructureAnalysis {
+        let mut start = *self.label_map.get_by_left(&Label::Root).unwrap();
+        self.structure_rec(&mut start, 0)
+    }
 }
 
 #[cfg(test)]
@@ -462,6 +568,32 @@ mod test {
                 show_graph(&r.loop_edge, &r.label_map);
                 // dbg!(&r.graph);
                 // dbg!(&r.loop_edge);
+            }
+        }
+    }
+
+    #[test]
+    fn test_structure_analysys() {
+        for entry in glob("bril/examples/test/df/*.bril")
+            .unwrap()
+            .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+        {
+            let path = entry.unwrap();
+            let src = std::fs::read_to_string(&path).unwrap();
+            let json_before = bril2json(src.as_str());
+            let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
+
+            for function in &mut program.functions {
+                println!("checking {} ... ", path.to_str().unwrap());
+                let cfg = Cfg::new(&function.instrs);
+                // dbg!(&cfg.graph);
+                let mut r = RestructuredCfg::new(cfg);
+                r.restructure();
+
+                show_graph(&r.graph, &r.label_map);
+                eprintln!("loop:");
+                show_graph(&r.loop_edge, &r.label_map);
+                dbg!(r.structure_analysys());
             }
         }
     }
