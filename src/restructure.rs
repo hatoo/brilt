@@ -1,6 +1,6 @@
 use crate::{
     cfg::{Cfg, Label},
-    graph::scc_sub,
+    graph::{dominants_sub, scc_sub},
 };
 use bimap::BiMap;
 use bril_rs::{Code, ConstOps, Instruction, Literal, Type};
@@ -306,25 +306,6 @@ impl RestructuredCfg {
         self.loop_restructure_rec(&self.graph.nodes().collect());
     }
 
-    // Assume graph's a DAG
-    fn dominants(&self, node: usize, sub_vs: &HashSet<usize>) -> HashSet<usize> {
-        let mut dominants = HashSet::new();
-        dominants.insert(node);
-
-        let mut stack = vec![node];
-
-        while let Some(v) = stack.pop() {
-            for n in self.graph.neighbors(v) {
-                if sub_vs.contains(&n) {
-                    dominants.insert(n);
-                    stack.push(n);
-                }
-            }
-        }
-
-        dominants
-    }
-
     // Call this after loop_restructure
     // graph's now a DAG
     fn branch_restructure_rec(&mut self, start: usize, sub_vs: &HashSet<usize>) {
@@ -345,7 +326,7 @@ impl RestructuredCfg {
             // brnach
             let dominants = succs
                 .into_iter()
-                .map(|s| (s, self.dominants(s, sub_vs)))
+                .map(|s| (s, dominants_sub(s, &self.graph, sub_vs)))
                 .collect::<Vec<_>>();
 
             let tails = dominants.iter().fold(HashSet::new(), |acc, (_, d)| {

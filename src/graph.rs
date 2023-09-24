@@ -121,6 +121,30 @@ pub fn scc_sub<N: Eq + NodeTrait, E>(
         .collect()
 }
 
+// Assume graph's a DAG
+pub fn dominants_sub<N: Eq + NodeTrait, E>(
+    node: N,
+    graph: &DiGraphMap<N, E>,
+    sub_vs: &HashSet<N>,
+) -> HashSet<N> {
+    let mut dominants = HashSet::new();
+    dominants.insert(node);
+
+    let mut stack = vec![node];
+
+    while let Some(v) = stack.pop() {
+        for n in graph.neighbors(v) {
+            if sub_vs.contains(&n) {
+                if dominants.insert(n) {
+                    stack.push(n);
+                }
+            }
+        }
+    }
+
+    dominants
+}
+
 #[test]
 fn test_scc() {
     let mut graph = DiGraphMap::new();
