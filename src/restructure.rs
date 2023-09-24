@@ -36,6 +36,11 @@ impl Display for StructureAnalysis {
 }
 
 impl StructureAnalysis {
+    // Those must not be used in the original cfg
+    const VAR_Q: &'static str = "__var_q";
+    const VAR_R: &'static str = "__var_r";
+    const VAR_P: &'static str = "__var_p";
+
     fn display_impl(&self, indent_level: usize, fmt: &mut Formatter) -> fmt::Result {
         let tab = " ".repeat(indent_level * 2);
         let ctab = " ".repeat(indent_level * 2 - 2);
@@ -60,7 +65,7 @@ impl StructureAnalysis {
             StructureAnalysis::Loop(s) => {
                 writeln!(fmt, "{}do {{", tab)?;
                 s.display_impl(indent_level + 1, fmt)?;
-                writeln!(fmt, "{}}} while(__var_r);", tab)?;
+                writeln!(fmt, "{}}} while({});", tab, Self::VAR_R)?;
             }
             StructureAnalysis::Branch(cond_var, ss) => {
                 writeln!(fmt, "{}switch ({}) {{", tab, cond_var)?;
@@ -78,11 +83,6 @@ impl StructureAnalysis {
 }
 
 impl RestructuredCfg {
-    // Those must not be used in the original cfg
-    const VAR_Q: &'static str = "__var_q";
-    const VAR_R: &'static str = "__var_r";
-    const VAR_P: &'static str = "__var_p";
-
     pub fn new(cfg: Cfg) -> Self {
         let loop_edge = DiGraphMap::new();
         Self {
@@ -138,7 +138,7 @@ impl RestructuredCfg {
     fn new_goto_node(&mut self, to_index: usize, to: usize) -> usize {
         let v = self.new_label();
         let code = Code::Instruction(Instruction::Constant {
-            dest: Self::VAR_P.to_string(),
+            dest: StructureAnalysis::VAR_P.to_string(),
             op: ConstOps::Const,
             const_type: Type::Int,
             value: Literal::Int(to_index as i64),
@@ -211,12 +211,12 @@ impl RestructuredCfg {
             if entries.len() == 1 {
                 (entries[0], entry_index)
             } else {
-                let fan_v = self.add_fan_node(Self::VAR_Q, &entries);
+                let fan_v = self.add_fan_node(StructureAnalysis::VAR_Q, &entries);
 
                 // Update incoming edges to entries
                 for (from, to) in entry_arcs {
                     let code = Code::Instruction(Instruction::Constant {
-                        dest: Self::VAR_Q.to_string(),
+                        dest: StructureAnalysis::VAR_Q.to_string(),
                         op: bril_rs::ConstOps::Const,
                         const_type: bril_rs::Type::Int,
                         value: bril_rs::Literal::Int(entry_index[&to] as i64),
@@ -243,18 +243,18 @@ impl RestructuredCfg {
             .map(|(i, &v)| (v, i))
             .collect::<HashMap<_, _>>();
 
-        let exit_fan = self.add_fan_node(Self::VAR_Q, &exits);
-        let single_exit = self.add_fan_node(Self::VAR_R, &[exit_fan, single_entry]);
+        let exit_fan = self.add_fan_node(StructureAnalysis::VAR_Q, &exits);
+        let single_exit = self.add_fan_node(StructureAnalysis::VAR_R, &[exit_fan, single_entry]);
 
         for (from, to) in repetition_arcs {
             let code0 = Code::Instruction(Instruction::Constant {
-                dest: Self::VAR_Q.to_string(),
+                dest: StructureAnalysis::VAR_Q.to_string(),
                 op: bril_rs::ConstOps::Const,
                 const_type: bril_rs::Type::Int,
                 value: bril_rs::Literal::Int(entry_index[&to] as i64),
             });
             let code1 = Code::Instruction(Instruction::Constant {
-                dest: Self::VAR_R.to_string(),
+                dest: StructureAnalysis::VAR_R.to_string(),
                 op: bril_rs::ConstOps::Const,
                 const_type: bril_rs::Type::Bool,
                 value: bril_rs::Literal::Bool(true),
@@ -270,13 +270,13 @@ impl RestructuredCfg {
 
         for (from, to) in exit_arcs {
             let code0 = Code::Instruction(Instruction::Constant {
-                dest: Self::VAR_Q.to_string(),
+                dest: StructureAnalysis::VAR_Q.to_string(),
                 op: bril_rs::ConstOps::Const,
                 const_type: bril_rs::Type::Int,
                 value: bril_rs::Literal::Int(exit_index[&to] as i64),
             });
             let code1 = Code::Instruction(Instruction::Constant {
-                dest: Self::VAR_R.to_string(),
+                dest: StructureAnalysis::VAR_R.to_string(),
                 op: bril_rs::ConstOps::Const,
                 const_type: bril_rs::Type::Bool,
                 value: bril_rs::Literal::Bool(false),
@@ -375,7 +375,7 @@ impl RestructuredCfg {
                             .and_then(|codes| codes.last())
                             .map(|code| match code {
                                 Code::Instruction(Instruction::Constant { dest, .. }) => {
-                                    dest == Self::VAR_P
+                                    dest == StructureAnalysis::VAR_P
                                 }
                                 _ => false,
                             })
@@ -442,7 +442,7 @@ impl RestructuredCfg {
                 .map(|(i, &v)| (v, i))
                 .collect::<HashMap<_, _>>();
 
-            let fan_v = self.add_fan_node(Self::VAR_P, &continuation_points_array);
+            let fan_v = self.add_fan_node(StructureAnalysis::VAR_P, &continuation_points_array);
 
             for (branch_start, mut b) in branches.into_iter().filter(|(_, b)| !b.is_empty()) {
                 let null_node = self.new_null_node();
