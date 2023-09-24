@@ -7,5 +7,5 @@ fn main() {
     let mut r = RestructuredCfg::new(cfg);
 
     r.restructure();
-    println!("{:?}", r.structure_analysys());
+    dbg!(r.structure_analysys());
 }

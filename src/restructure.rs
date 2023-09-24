@@ -226,10 +226,6 @@ impl RestructuredCfg {
             codes.insert(codes.len() - 1, code1);
             self.replace_edge(from, to, single_exit);
         }
-        dbg!(exit_vs
-            .iter()
-            .map(|&v| self.label_map.get_by_right(&v).unwrap())
-            .collect::<Vec<_>>());
 
         self.graph.remove_edge(single_exit, single_entry);
         self.loop_edge.add_edge(single_exit, single_entry, ());
@@ -238,10 +234,6 @@ impl RestructuredCfg {
     fn loop_restructure_rec(&mut self, sub_vs: &HashSet<usize>) {
         for sc in scc_sub(&self.graph, sub_vs) {
             if sc.len() > 1 {
-                dbg!(sc
-                    .iter()
-                    .map(|&v| self.label_map.get_by_right(&v).unwrap())
-                    .collect::<Vec<_>>());
                 self.loop_restructure_impl(&sc);
                 self.loop_restructure_rec(&sc);
             }
@@ -437,12 +429,11 @@ impl RestructuredCfg {
         self.branch_restructure();
     }
 
-    fn structure_rec(&self, start: &mut usize, level: usize) -> StructureAnalysis {
+    fn structure_rec(&self, start: &mut usize) -> StructureAnalysis {
         let mut linear = Vec::new();
         let mut last_exit_branch = false;
 
         loop {
-            dbg!(self.label_map.get_by_right(start).unwrap(), level);
             if self.loop_edge.neighbors(*start).count() > 0
                 || (self
                     .graph
@@ -451,7 +442,6 @@ impl RestructuredCfg {
                     > 1
                     && !last_exit_branch)
             {
-                dbg!("exit");
                 break;
             }
             last_exit_branch = false;
@@ -462,7 +452,6 @@ impl RestructuredCfg {
 
             if succs.len() == 0 {
                 linear.push(s0);
-                dbg!("exit");
                 break;
             }
 
@@ -473,18 +462,14 @@ impl RestructuredCfg {
                 > 0;
             let s = if succs.len() == 1 {
                 if is_loop_entry {
-                    dbg!("loop enter", succs.len());
                     *start = succs[0];
-                    let r =
-                        StructureAnalysis::Linear(vec![s0, self.structure_rec(start, level + 1)]);
-                    dbg!(*start);
+                    let r = StructureAnalysis::Linear(vec![s0, self.structure_rec(start)]);
                     r
                 } else {
                     *start = succs[0];
                     s0
                 }
             } else {
-                dbg!("enter", succs.len());
                 last_exit_branch = true;
                 let (cond_var, branch_labels) =
                     match self.block_map.get(start).unwrap().last().unwrap() {
@@ -501,15 +486,11 @@ impl RestructuredCfg {
                             .label_map
                             .get_by_left(&Label::Label(l.clone()))
                             .unwrap();
-                        let s = self.structure_rec(&mut v, level + 1);
+                        let s = self.structure_rec(&mut v);
                         (v, s)
                     })
                     .collect();
 
-                dbg!(branches
-                    .iter()
-                    .map(|(v, _)| self.label_map.get_by_right(v).unwrap())
-                    .collect::<Vec<_>>());
                 // debug_assert!(branches.iter().all(|(v, _)| *v == branches[0].0));
                 *start = branches[0].0;
                 StructureAnalysis::Linear(vec![
@@ -524,7 +505,6 @@ impl RestructuredCfg {
             if is_loop_entry {
                 linear.push(StructureAnalysis::Loop(Box::new(s)));
                 // now on loop exit
-                dbg!(self.label_map.get_by_right(start).unwrap());
                 debug_assert!(self.loop_edge.neighbors(*start).count() == 1);
                 *start = self.graph.neighbors(*start).next().unwrap();
             } else {
@@ -541,7 +521,7 @@ impl RestructuredCfg {
 
     pub fn structure_analysys(&self) -> StructureAnalysis {
         let mut start = *self.label_map.get_by_left(&Label::Root).unwrap();
-        self.structure_rec(&mut start, 0)
+        self.structure_rec(&mut start)
     }
 }
 
