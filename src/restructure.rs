@@ -295,7 +295,7 @@ impl RestructuredCfg {
 
     fn loop_restructure_rec(&mut self, sub_vs: &HashSet<usize>) {
         for sc in scc_sub(&self.graph, sub_vs) {
-            if sc.len() > 1 {
+            if sc.len() > 1 || sc.iter().any(|&v| self.graph.neighbors(v).any(|s| s == v)) {
                 self.loop_restructure_impl(&sc);
                 self.loop_restructure_rec(&sc);
             }
