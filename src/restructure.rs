@@ -67,15 +67,25 @@ impl StructureAnalysis {
                 s.display_impl(indent_level + 1, fmt)?;
                 writeln!(fmt, "{}}} while({});", tab, Self::VAR_R)?;
             }
-            StructureAnalysis::Branch(cond_var, ss) => {
-                writeln!(fmt, "{}switch ({}) {{", tab, cond_var)?;
-                for (i, s) in ss.iter().enumerate() {
-                    writeln!(fmt, "{}  case {}: {{", tab, i)?;
-                    s.display_impl(indent_level + 2, fmt)?;
-                    writeln!(fmt, "{}  }}", tab)?;
+            StructureAnalysis::Branch(cond_var, ss) => match cond_var.as_str() {
+                Self::VAR_P | Self::VAR_Q | Self::VAR_R => {
+                    writeln!(fmt, "{}switch ({}) {{", tab, cond_var)?;
+                    for (i, s) in ss.iter().enumerate() {
+                        writeln!(fmt, "{}  case {}: {{", tab, i)?;
+                        s.display_impl(indent_level + 2, fmt)?;
+                        writeln!(fmt, "{}  }}", tab)?;
+                    }
+                    writeln!(fmt, "{}}}", tab)?;
                 }
-                writeln!(fmt, "{}}}", tab)?;
-            }
+                _ => {
+                    assert!(ss.len() == 2);
+                    writeln!(fmt, "{}if ({}) {{", tab, cond_var)?;
+                    ss[0].display_impl(indent_level + 1, fmt)?;
+                    writeln!(fmt, "{}}} else {{", tab)?;
+                    ss[1].display_impl(indent_level + 1, fmt)?;
+                    writeln!(fmt, "{}}}", tab)?;
+                }
+            },
         }
 
         Ok(())
