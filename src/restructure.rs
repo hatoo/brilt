@@ -5,7 +5,10 @@ use crate::{
 use bimap::BiMap;
 use bril_rs::{Code, ConstOps, Instruction, Literal, Type};
 use petgraph::{prelude::DiGraphMap, Direction};
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{self, Display, Formatter},
+};
 
 pub struct RestructuredCfg {
     block_map: HashMap<usize, Vec<Code>>,
@@ -21,6 +24,56 @@ pub enum StructureAnalysis {
     Linear(Vec<StructureAnalysis>),
     Loop(Box<StructureAnalysis>),
     Branch(String, Vec<StructureAnalysis>),
+}
+
+impl Display for StructureAnalysis {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        self.display_impl(1, fmt)
+    }
+}
+
+impl StructureAnalysis {
+    fn display_impl(&self, indent_level: usize, fmt: &mut Formatter) -> fmt::Result {
+        let tab = " ".repeat(indent_level * 2);
+        let ctab = " ".repeat(indent_level * 2 - 2);
+
+        match self {
+            StructureAnalysis::Block(codes) => {
+                for code in codes.iter().filter(|code| match code {
+                    Code::Instruction(Instruction::Effect { op, .. }) => {
+                        op != &bril_rs::EffectOps::Jump && op != &bril_rs::EffectOps::Branch
+                    }
+                    Code::Label { .. } => false,
+                    _ => true,
+                }) {
+                    writeln!(fmt, "{}{}", ctab, code)?;
+                }
+            }
+            StructureAnalysis::Linear(ss) => {
+                for s in ss {
+                    s.display_impl(indent_level, fmt)?;
+                }
+            }
+            StructureAnalysis::Loop(s) => {
+                writeln!(fmt, "{}do {{", tab)?;
+                s.display_impl(indent_level + 1, fmt)?;
+                writeln!(fmt, "{}}} while(r);", tab)?;
+            }
+            StructureAnalysis::Branch(cond_var, ss) => {
+                writeln!(fmt, "{}if ({}) {{", tab, cond_var)?;
+                for s in ss {
+                    s.display_impl(indent_level + 1, fmt)?;
+                }
+                writeln!(fmt, "{}}} else {{", tab)?;
+                for s in ss {
+                    s.display_impl(indent_level + 1, fmt)?;
+                }
+                writeln!(fmt, "{}}}", tab)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl RestructuredCfg {
@@ -154,21 +207,25 @@ impl RestructuredCfg {
                 .map(|(i, &v)| (v, i))
                 .collect::<HashMap<_, _>>();
 
-            let fan_v = self.add_fan_node(Self::VAR_Q, &entries);
+            if entries.len() == 1 {
+                (entries[0], entry_index)
+            } else {
+                let fan_v = self.add_fan_node(Self::VAR_Q, &entries);
 
-            // Update incoming edges to entries
-            for (from, to) in entry_arcs {
-                let code = Code::Instruction(Instruction::Constant {
-                    dest: Self::VAR_Q.to_string(),
-                    op: bril_rs::ConstOps::Const,
-                    const_type: bril_rs::Type::Int,
-                    value: bril_rs::Literal::Int(entry_index[&to] as i64),
-                });
-                let codes = self.block_map.get_mut(&from).unwrap();
-                codes.insert(codes.len() - 1, code);
-                self.replace_edge(from, to, fan_v);
+                // Update incoming edges to entries
+                for (from, to) in entry_arcs {
+                    let code = Code::Instruction(Instruction::Constant {
+                        dest: Self::VAR_Q.to_string(),
+                        op: bril_rs::ConstOps::Const,
+                        const_type: bril_rs::Type::Int,
+                        value: bril_rs::Literal::Int(entry_index[&to] as i64),
+                    });
+                    let codes = self.block_map.get_mut(&from).unwrap();
+                    codes.insert(codes.len() - 1, code);
+                    self.replace_edge(from, to, fan_v);
+                }
+                (fan_v, entry_index)
             }
-            (fan_v, entry_index)
         } else {
             // dead codes
             for &v in vs {
@@ -590,7 +647,9 @@ mod test {
                 show_graph(&r.graph, &r.label_map);
                 eprintln!("loop:");
                 show_graph(&r.loop_edge, &r.label_map);
-                dbg!(r.structure_analysys());
+
+                eprintln!("code:");
+                eprintln!("{}", r.structure_analysys())
             }
         }
     }
