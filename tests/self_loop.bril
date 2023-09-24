@@ -1,0 +1,6 @@
+@main() {
+.entry:
+  x: int = const 1;
+  print x;
+  jmp .entry;
+}
