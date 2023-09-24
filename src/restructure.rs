@@ -18,6 +18,9 @@ pub struct RestructuredCfg {
     label_counter: usize,
 }
 
+// Structured Code has an instruction which is not valid in original Bril
+// br x .label1 .label2 .label3 ...
+// This instruction act as a switch statement and x maybe an int (which isn't valid in Bril)
 #[derive(Debug, Clone)]
 pub enum StructureAnalysis {
     Block(Vec<Code>),
