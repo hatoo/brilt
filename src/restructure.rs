@@ -57,16 +57,14 @@ impl StructureAnalysis {
             StructureAnalysis::Loop(s) => {
                 writeln!(fmt, "{}do {{", tab)?;
                 s.display_impl(indent_level + 1, fmt)?;
-                writeln!(fmt, "{}}} while(r);", tab)?;
+                writeln!(fmt, "{}}} while(__var_r);", tab)?;
             }
             StructureAnalysis::Branch(cond_var, ss) => {
-                writeln!(fmt, "{}if ({}) {{", tab, cond_var)?;
-                for s in ss {
-                    s.display_impl(indent_level + 1, fmt)?;
-                }
-                writeln!(fmt, "{}}} else {{", tab)?;
-                for s in ss {
-                    s.display_impl(indent_level + 1, fmt)?;
+                writeln!(fmt, "{}switch ({}) {{", tab, cond_var)?;
+                for (i, s) in ss.iter().enumerate() {
+                    writeln!(fmt, "{}  case {}: {{", tab, i)?;
+                    s.display_impl(indent_level + 2, fmt)?;
+                    writeln!(fmt, "{}  }}", tab)?;
                 }
                 writeln!(fmt, "{}}}", tab)?;
             }
@@ -260,7 +258,9 @@ impl RestructuredCfg {
             });
 
             let codes = self.block_map.get_mut(&from).unwrap();
-            codes.insert(codes.len() - 1, code0);
+            if entry_index.len() > 1 {
+                codes.insert(codes.len() - 1, code0);
+            }
             codes.insert(codes.len() - 1, code1);
             self.replace_edge(from, to, single_exit);
         }
@@ -279,7 +279,9 @@ impl RestructuredCfg {
                 value: bril_rs::Literal::Bool(false),
             });
             let codes = self.block_map.get_mut(&from).unwrap();
-            codes.insert(codes.len() - 1, code0);
+            if exit_index.len() > 1 {
+                codes.insert(codes.len() - 1, code0);
+            }
             codes.insert(codes.len() - 1, code1);
             self.replace_edge(from, to, single_exit);
         }
