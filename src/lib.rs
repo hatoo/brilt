@@ -1,3 +1,4 @@
+pub mod annotation;
 pub mod cfg;
 pub mod graph;
 pub mod restructure;

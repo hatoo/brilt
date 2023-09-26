@@ -37,9 +37,9 @@ impl Display for StructureAnalysis {
 
 impl StructureAnalysis {
     // Those must not be used in the original cfg
-    const VAR_Q: &'static str = "__var_q";
-    const VAR_R: &'static str = "__var_r";
-    const VAR_P: &'static str = "__var_p";
+    pub const VAR_Q: &'static str = "__var_q";
+    pub const VAR_R: &'static str = "__var_r";
+    pub const VAR_P: &'static str = "__var_p";
 
     fn display_impl(&self, indent_level: usize, fmt: &mut Formatter) -> fmt::Result {
         let tab = " ".repeat(indent_level * 2);
@@ -142,7 +142,7 @@ impl StructureAnalysis {
     }
 
     pub fn new(cfg: Cfg) -> Self {
-        RestructuredCfg::new(cfg).structure_analysys()
+        RestructuredCfg::new(cfg).structure_analysis()
     }
 }
 
@@ -626,7 +626,7 @@ impl RestructuredCfg {
         }
     }
 
-    pub(crate) fn structure_analysys(&mut self) -> StructureAnalysis {
+    fn structure_analysis(&mut self) -> StructureAnalysis {
         self.restructure();
         let mut start = *self.label_map.get_by_left(&Label::Root).unwrap();
         let mut sa = self.structure_rec(&mut start);
@@ -680,7 +680,7 @@ mod test {
     }
 
     #[test]
-    fn test_structure_analysys() {
+    fn test_structure_analysis() {
         for entry in glob("bril/examples/test/df/*.bril")
             .unwrap()
             .chain(glob("bril/examples/test/dom/*.bril").unwrap())
