@@ -1,4 +1,7 @@
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    fmt::{self, Debug, Display, Formatter},
+};
 
 use bril_rs::Code;
 
@@ -22,6 +25,63 @@ impl<T> Annotation<T> {
             Self::Loop(_, a) => a,
             Self::Branch(_, _, a) => a,
         }
+    }
+}
+
+impl<T: Debug> Display for Annotation<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.display_impl(1, f)
+    }
+}
+
+impl<T: Debug> Annotation<T> {
+    fn display_impl(&self, indent_level: usize, fmt: &mut Formatter) -> fmt::Result {
+        let tab = " ".repeat(indent_level * 2);
+        let ctab = " ".repeat(indent_level * 2 - 2);
+
+        match self {
+            Self::Block(codes, a) => {
+                writeln!(fmt, "{}{:?}", tab, a)?;
+                for code in codes.iter() {
+                    writeln!(fmt, "{}{}", ctab, code)?;
+                }
+            }
+            Self::Linear(ss, a) => {
+                writeln!(fmt, "{}{:?}", tab, a)?;
+                for s in ss {
+                    s.display_impl(indent_level, fmt)?;
+                }
+            }
+            Self::Loop(s, a) => {
+                writeln!(fmt, "{}{:?}", tab, a)?;
+                writeln!(fmt, "{}do {{", tab)?;
+                s.display_impl(indent_level + 1, fmt)?;
+                writeln!(fmt, "{}}} while({});", tab, StructureAnalysis::VAR_R)?;
+            }
+            Self::Branch(cond_var, ss, a) => match cond_var.as_str() {
+                StructureAnalysis::VAR_P | StructureAnalysis::VAR_Q | StructureAnalysis::VAR_R => {
+                    writeln!(fmt, "{}{:?}", tab, a)?;
+                    writeln!(fmt, "{}switch ({}) {{", tab, cond_var)?;
+                    for (i, s) in ss.iter().enumerate() {
+                        writeln!(fmt, "{}  case {}: {{", tab, i)?;
+                        s.display_impl(indent_level + 2, fmt)?;
+                        writeln!(fmt, "{}  }}", tab)?;
+                    }
+                    writeln!(fmt, "{}}}", tab)?;
+                }
+                _ => {
+                    writeln!(fmt, "{}{:?}", tab, a)?;
+                    assert!(ss.len() == 2);
+                    writeln!(fmt, "{}if ({}) {{", tab, cond_var)?;
+                    ss[0].display_impl(indent_level + 1, fmt)?;
+                    writeln!(fmt, "{}}} else {{", tab)?;
+                    ss[1].display_impl(indent_level + 1, fmt)?;
+                    writeln!(fmt, "{}}}", tab)?;
+                }
+            },
+        }
+
+        Ok(())
     }
 }
 
@@ -108,10 +168,41 @@ pub fn read_write_annotation(sa: StructureAnalysis) -> Annotation<ReadWrite> {
         }
         StructureAnalysis::Loop(sa) => {
             let a = read_write_annotation(*sa);
-            let mut read_write = a.annotation().clone();
-            read_write.read.insert(StructureAnalysis::VAR_R.to_string());
+            let read_write = a.annotation().clone();
 
             Annotation::Loop(Box::new(a), read_write)
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{cfg::Cfg, test::*};
+    use glob::glob;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_rw_analysis() {
+        for entry in glob("bril/examples/test/df/*.bril")
+            .unwrap()
+            .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+        {
+            let path = entry.unwrap();
+            let src = std::fs::read_to_string(&path).unwrap();
+            let json_before = bril2json(src.as_str());
+            let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
+
+            for function in &mut program.functions {
+                println!("checking {} ... ", path.to_str().unwrap());
+                let cfg = Cfg::new(&function.instrs);
+
+                let sa = StructureAnalysis::new(cfg);
+
+                let rw = read_write_annotation(sa);
+
+                eprintln!("{}", rw);
+            }
         }
     }
 }
