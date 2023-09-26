@@ -10,7 +10,7 @@ use std::{
     fmt::{self, Display, Formatter},
 };
 
-pub struct RestructuredCfg {
+struct RestructuredCfg {
     block_map: HashMap<usize, Vec<Code>>,
     graph: DiGraphMap<usize, ()>,
     label_map: BiMap<Label, usize>,
@@ -140,10 +140,14 @@ impl StructureAnalysis {
             }
         }
     }
+
+    pub fn new(cfg: Cfg) -> Self {
+        RestructuredCfg::new(cfg).structure_analysys()
+    }
 }
 
 impl RestructuredCfg {
-    pub fn new(cfg: Cfg) -> Self {
+    fn new(cfg: Cfg) -> Self {
         let loop_edge = DiGraphMap::new();
         Self {
             block_map: cfg.block_map,
@@ -527,7 +531,7 @@ impl RestructuredCfg {
         self.branch_restructure_rec(0, &self.graph.nodes().collect());
     }
 
-    pub fn restructure(&mut self) {
+    fn restructure(&mut self) {
         self.loop_restructure();
         self.branch_restructure();
     }
@@ -622,7 +626,8 @@ impl RestructuredCfg {
         }
     }
 
-    pub fn structure_analysys(&self) -> StructureAnalysis {
+    pub(crate) fn structure_analysys(&mut self) -> StructureAnalysis {
+        self.restructure();
         let mut start = *self.label_map.get_by_left(&Label::Root).unwrap();
         let mut sa = self.structure_rec(&mut start);
         sa.clean();
@@ -688,19 +693,8 @@ mod test {
             for function in &mut program.functions {
                 println!("checking {} ... ", path.to_str().unwrap());
                 let cfg = Cfg::new(&function.instrs);
-                // dbg!(&cfg.graph);
-                let mut r = RestructuredCfg::new(cfg);
-                r.restructure();
 
-                /*
-                show_graph(&r.graph, &r.label_map);
-                eprintln!("loop:");
-                show_graph(&r.loop_edge, &r.label_map);
-                */
-
-                // eprintln!("code:");
-
-                let sa = r.structure_analysys();
+                let sa = StructureAnalysis::new(cfg);
                 eprintln!("{}", &sa);
 
                 dbg!(sa);
