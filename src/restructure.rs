@@ -47,13 +47,7 @@ impl StructureAnalysis {
 
         match self {
             StructureAnalysis::Block(codes) => {
-                for code in codes.iter().filter(|code| match code {
-                    Code::Instruction(Instruction::Effect { op, .. }) => {
-                        op != &bril_rs::EffectOps::Jump && op != &bril_rs::EffectOps::Branch
-                    }
-                    Code::Label { .. } => false,
-                    _ => true,
-                }) {
+                for code in codes.iter() {
                     writeln!(fmt, "{}{}", ctab, code)?;
                 }
             }
@@ -89,6 +83,62 @@ impl StructureAnalysis {
         }
 
         Ok(())
+    }
+
+    fn clean(&mut self) {
+        match self {
+            StructureAnalysis::Block(codes) => {
+                codes.retain(|code| match code {
+                    Code::Instruction(Instruction::Effect { op, .. }) => {
+                        op != &bril_rs::EffectOps::Jump && op != &bril_rs::EffectOps::Branch
+                    }
+                    Code::Label { .. } => false,
+                    _ => true,
+                });
+            }
+            StructureAnalysis::Linear(ss) => {
+                let mut new_linear = Vec::new();
+                for s in ss {
+                    s.clean();
+
+                    match s {
+                        Self::Block(codes) => {
+                            if !codes.is_empty() {
+                                match new_linear.last_mut() {
+                                    Some(StructureAnalysis::Block(last_codes)) => {
+                                        codes.extend(last_codes.iter().cloned());
+                                    }
+                                    _ => new_linear.push(s.clone()),
+                                }
+                            }
+                        }
+                        Self::Linear(ss) => {
+                            for s in ss {
+                                match s {
+                                    Self::Block(codes) => match new_linear.last_mut() {
+                                        Some(StructureAnalysis::Block(last_codes)) => {
+                                            codes.extend(last_codes.iter().cloned());
+                                        }
+                                        _ => new_linear.push(s.clone()),
+                                    },
+                                    _ => new_linear.push(s.clone()),
+                                }
+                            }
+                        }
+                        _ => new_linear.push(s.clone()),
+                    }
+                }
+                *self = StructureAnalysis::Linear(new_linear);
+            }
+            StructureAnalysis::Loop(s) => {
+                s.clean();
+            }
+            StructureAnalysis::Branch(_, ss) => {
+                for s in ss {
+                    s.clean();
+                }
+            }
+        }
     }
 }
 
@@ -574,7 +624,9 @@ impl RestructuredCfg {
 
     pub fn structure_analysys(&self) -> StructureAnalysis {
         let mut start = *self.label_map.get_by_left(&Label::Root).unwrap();
-        self.structure_rec(&mut start)
+        let mut sa = self.structure_rec(&mut start);
+        sa.clean();
+        sa
     }
 }
 
@@ -640,12 +692,18 @@ mod test {
                 let mut r = RestructuredCfg::new(cfg);
                 r.restructure();
 
+                /*
                 show_graph(&r.graph, &r.label_map);
                 eprintln!("loop:");
                 show_graph(&r.loop_edge, &r.label_map);
+                */
 
-                eprintln!("code:");
-                eprintln!("{}", r.structure_analysys())
+                // eprintln!("code:");
+
+                let sa = r.structure_analysys();
+                eprintln!("{}", &sa);
+
+                dbg!(sa);
             }
         }
     }
