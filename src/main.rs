@@ -1,11 +1,10 @@
-use brilt::{cfg::Cfg, restructure::RestructuredCfg};
+use brilt::{cfg::Cfg, restructure::StructureAnalysis};
 
 fn main() {
     let program = bril_rs::load_program();
 
     let cfg = Cfg::new(&program.functions[0].instrs);
-    let mut r = RestructuredCfg::new(cfg);
+    let sa = StructureAnalysis::new(cfg);
 
-    r.restructure();
-    println!("{}", r.structure_analysys());
+    println!("{}", sa);
 }
