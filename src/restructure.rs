@@ -25,6 +25,7 @@ struct RestructuredCfg {
 pub enum StructureAnalysis {
     Block(Vec<Code>),
     Linear(Vec<StructureAnalysis>),
+    // loop variable is always StructureAnalysis::VAR_R
     Loop(Box<StructureAnalysis>),
     Branch(String, Vec<StructureAnalysis>),
 }

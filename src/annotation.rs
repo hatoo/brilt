@@ -1,14 +1,13 @@
 use std::{
     collections::HashSet,
     fmt::{self, Debug, Display, Formatter},
-    process::CommandEnvs,
 };
 
 use bril_rs::Code;
 
 use crate::restructure::StructureAnalysis;
 
-/// Annotaion for structured control flow.
+/// Annotation for structured control flow.
 
 #[derive(Debug, Clone)]
 pub enum Annotation<T> {
