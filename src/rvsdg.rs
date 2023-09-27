@@ -206,6 +206,7 @@ mod test {
 
             for function in &mut program.functions {
                 println!("checking {} ... ", path.to_str().unwrap());
+                eprintln!("{}", function);
                 let cfg = Cfg::new(&function.instrs);
 
                 let sa = StructureAnalysis::new(cfg);
