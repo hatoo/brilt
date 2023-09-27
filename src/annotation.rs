@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     fmt::{self, Debug, Display, Formatter},
+    process::CommandEnvs,
 };
 
 use bril_rs::Code;
@@ -175,6 +176,74 @@ pub fn read_write_annotation(sa: StructureAnalysis) -> Annotation<ReadWrite> {
     }
 }
 
+fn demand_set_annotation_rec(
+    rwa: Annotation<ReadWrite>,
+    dt: &mut HashSet<String>,
+) -> Annotation<HashSet<String>> {
+    match rwa {
+        Annotation::Block(codes, rw) => {
+            for w in rw.write.iter() {
+                dt.remove(w);
+            }
+
+            for r in rw.read.iter() {
+                dt.insert(r.clone());
+            }
+
+            Annotation::Block(codes, dt.clone())
+        }
+        Annotation::Linear(v, rw) => {
+            let mut new_v = v
+                .into_iter()
+                .rev()
+                .map(|a| demand_set_annotation_rec(a, dt))
+                .collect::<Vec<_>>();
+            new_v.reverse();
+
+            for w in rw.write.iter() {
+                dt.remove(w);
+            }
+
+            for r in rw.read.iter() {
+                dt.insert(r.clone());
+            }
+
+            Annotation::Linear(new_v, dt.clone())
+        }
+        Annotation::Branch(cond_var, branches, rw) => {
+            let new_branches = branches
+                .into_iter()
+                .map(|a| demand_set_annotation_rec(a, &mut dt.clone()))
+                .collect::<Vec<_>>();
+
+            for w in rw.write.iter() {
+                dt.remove(w);
+            }
+
+            for r in rw.read.iter() {
+                dt.insert(r.clone());
+            }
+
+            Annotation::Branch(cond_var, new_branches, dt.clone())
+        }
+        Annotation::Loop(body, rw) => {
+            for r in rw.read.iter() {
+                dt.insert(r.clone());
+            }
+
+            let new_body = demand_set_annotation_rec(*body, dt);
+
+            Annotation::Loop(Box::new(new_body), dt.clone())
+        }
+    }
+}
+
+pub fn demand_set_annotation(rwa: Annotation<ReadWrite>) -> Annotation<HashSet<String>> {
+    let mut dt = HashSet::new();
+
+    demand_set_annotation_rec(rwa, &mut dt)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -183,7 +252,7 @@ mod test {
     use std::io::Cursor;
 
     #[test]
-    fn test_rw_analysis() {
+    fn test_rw_annotation() {
         for entry in glob("bril/examples/test/df/*.bril")
             .unwrap()
             .chain(glob("bril/examples/test/dom/*.bril").unwrap())
@@ -202,6 +271,30 @@ mod test {
                 let rw = read_write_annotation(sa);
 
                 eprintln!("{}", rw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_demand_set_annotation() {
+        for entry in glob("bril/examples/test/df/*.bril")
+            .unwrap()
+            .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+        {
+            let path = entry.unwrap();
+            let src = std::fs::read_to_string(&path).unwrap();
+            let json_before = bril2json(src.as_str());
+            let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
+
+            for function in &mut program.functions {
+                println!("checking {} ... ", path.to_str().unwrap());
+                let cfg = Cfg::new(&function.instrs);
+
+                let sa = StructureAnalysis::new(cfg);
+                let rw = read_write_annotation(sa);
+                let ds = demand_set_annotation(rw);
+
+                eprintln!("{}", ds);
             }
         }
     }
