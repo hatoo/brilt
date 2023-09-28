@@ -188,10 +188,6 @@ pub fn to_rvsdg(
             let mut new_outputs = v.into_iter().map(|(v, _)| v).cloned().collect::<Vec<_>>();
             let mut output_indices = Vec::new();
 
-            let cond_index = output_indices.len();
-            new_outputs.push(StructureAnalysis::VAR_R.to_string());
-            output_indices.push(cond_index);
-
             for v in outputs {
                 if let Some(i) = args.get(v) {
                     output_indices.push(*i);
@@ -201,32 +197,43 @@ pub fn to_rvsdg(
                 }
             }
 
+            let cond_index = new_outputs.len();
+            new_outputs.push(StructureAnalysis::VAR_R.to_string());
+
+            dbg!(&args, &new_outputs);
             Rvsdg::Loop {
-                body: Box::new(to_rvsdg(*body, args, outputs)),
+                body: Box::new(to_rvsdg(*body, args, &new_outputs)),
                 cond_index,
                 outputs: output_indices,
             }
         }
 
         Annotation::Linear(v, _) => {
-            let mut args = args;
-            let mut out = Vec::new();
-            for i in 0..v.len() {
-                let outputs = v
-                    .get(i + 1)
-                    .map(|a| Cow::Owned(a.annotation().iter().cloned().collect::<Vec<_>>()))
-                    .unwrap_or(Cow::Borrowed(outputs));
+            if v.is_empty() {
+                Rvsdg::Simple {
+                    outputs: outputs.iter().map(|v| Expr::Arg(args[v])).collect(),
+                    state: Expr::State,
+                }
+            } else {
+                let mut args = args;
+                let mut out = Vec::new();
+                for i in 0..v.len() {
+                    let outputs = v
+                        .get(i + 1)
+                        .map(|a| Cow::Owned(a.annotation().iter().cloned().collect::<Vec<_>>()))
+                        .unwrap_or(Cow::Borrowed(outputs));
 
-                out.push(to_rvsdg(v[i].clone(), args, &outputs));
+                    out.push(to_rvsdg(v[i].clone(), args, &outputs));
 
-                args = outputs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| (v.clone(), i))
-                    .collect::<HashMap<_, _>>();
+                    args = outputs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| (v.clone(), i))
+                        .collect::<HashMap<_, _>>();
+                }
+
+                Rvsdg::Linear(out)
             }
-
-            Rvsdg::Linear(out)
         }
     }
 }
@@ -261,6 +268,7 @@ mod test {
                 let sa = StructureAnalysis::new(cfg);
                 let rw = read_write_annotation(sa);
                 let ds = demand_set_annotation(rw);
+                // eprintln!("{}", &ds);
                 let rvsdg = to_rvsdg(
                     ds,
                     function

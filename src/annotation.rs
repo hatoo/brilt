@@ -229,6 +229,7 @@ fn demand_set_annotation_rec(
             for r in rw.read.iter() {
                 dt.insert(r.clone());
             }
+            dt.insert(StructureAnalysis::VAR_R.to_string());
 
             let new_body = demand_set_annotation_rec(*body, dt);
 
