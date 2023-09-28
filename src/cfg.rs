@@ -31,10 +31,11 @@ impl Label {
 }
 
 #[derive(Default, Debug)]
+/// Control flow graph
 pub struct Cfg {
-    pub(crate) block_map: HashMap<usize, Vec<Code>>,
-    pub(crate) graph: DiGraphMap<usize, ()>,
-    pub(crate) label_map: HashMap<Label, usize>,
+    pub block_map: HashMap<usize, Vec<Code>>,
+    pub graph: DiGraphMap<usize, ()>,
+    pub label_map: HashMap<Label, usize>,
 }
 
 impl Cfg {

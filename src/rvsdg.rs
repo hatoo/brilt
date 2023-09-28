@@ -5,7 +5,10 @@ use std::{
 
 use bril_rs::{Code, EffectOps, Instruction, Literal, ValueOps};
 
-use crate::{annotation::Annotation, restructure::StructureAnalysis};
+use crate::{
+    annotation::{demand_set_annotation, read_write_annotation, Annotation},
+    restructure::StructureAnalysis,
+};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -52,6 +55,21 @@ pub enum Rvsdg {
         cond_index: usize,
         outputs: Vec<usize>,
     },
+}
+
+impl Rvsdg {
+    pub fn new(args: &[String], structure: StructureAnalysis) -> Self {
+        let args = args
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v.clone(), i))
+            .collect::<HashMap<_, _>>();
+
+        let rw = read_write_annotation(structure);
+        let demand = demand_set_annotation(rw);
+
+        to_rvsdg(demand, args, &[])
+    }
 }
 
 fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[String]) -> Rvsdg {
@@ -161,7 +179,7 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
     }
 }
 
-pub fn to_rvsdg(
+fn to_rvsdg(
     demand: Annotation<HashSet<String>>,
     args: HashMap<String, usize>,
     outputs: &[String],

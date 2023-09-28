@@ -1,6 +1,8 @@
-pub mod annotation;
+//! Transform Bril to Structured CFG / RVSDG
+
+mod annotation;
 pub mod cfg;
-pub mod graph;
+mod graph;
 pub mod restructure;
 pub mod rvsdg;
 
