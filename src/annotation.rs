@@ -168,7 +168,9 @@ pub fn read_write_annotation(sa: StructureAnalysis) -> Annotation<ReadWrite> {
         }
         StructureAnalysis::Loop(sa) => {
             let a = read_write_annotation(*sa);
-            let read_write = a.annotation().clone();
+            let mut read_write = a.annotation().clone();
+
+            read_write.read.insert(StructureAnalysis::VAR_R.to_string());
 
             Annotation::Loop(Box::new(a), read_write)
         }
@@ -229,7 +231,6 @@ fn demand_set_annotation_rec(
             for r in rw.read.iter() {
                 dt.insert(r.clone());
             }
-            dt.insert(StructureAnalysis::VAR_R.to_string());
 
             let new_body = demand_set_annotation_rec(*body, dt);
 
