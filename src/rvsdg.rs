@@ -218,7 +218,6 @@ fn to_rvsdg(
             let cond_index = new_outputs.len();
             new_outputs.push(StructureAnalysis::VAR_R.to_string());
 
-            dbg!(&args, &new_outputs);
             Rvsdg::Loop {
                 body: Box::new(to_rvsdg(*body, args, &new_outputs)),
                 cond_index,
