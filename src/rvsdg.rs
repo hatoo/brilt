@@ -9,14 +9,29 @@ use crate::{annotation::Annotation, restructure::StructureAnalysis};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
+    // RVSDG
     Arg(usize),
     State,
+    // EffectOps
     Print(Box<Expr>, Box<Expr>),
     Ret(Option<Box<Expr>>, Box<Expr>),
+    Call(String, Vec<Expr>, Box<Expr>),
+    // ConstOps
     ConstInt(i64),
     ConstBool(bool),
+    // ValueOps
     Add(Box<Expr>, Box<Expr>),
     Sub(Box<Expr>, Box<Expr>),
+    Mul(Box<Expr>, Box<Expr>),
+    Div(Box<Expr>, Box<Expr>),
+    Eq(Box<Expr>, Box<Expr>),
+    Lt(Box<Expr>, Box<Expr>),
+    Gt(Box<Expr>, Box<Expr>),
+    Le(Box<Expr>, Box<Expr>),
+    Ge(Box<Expr>, Box<Expr>),
+    Not(Box<Expr>),
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
@@ -63,23 +78,50 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
                         .map(|arg| vars.get(&arg).unwrap())
                         .collect::<Vec<_>>();
 
-                    match op {
+                    let expr = match op {
                         ValueOps::Add => {
-                            vars.insert(
-                                dest,
-                                Expr::Add(Box::new(args[0].clone()), Box::new(args[1].clone())),
-                            );
+                            Expr::Add(Box::new(args[0].clone()), Box::new(args[1].clone()))
                         }
                         ValueOps::Sub => {
-                            vars.insert(
-                                dest,
-                                Expr::Sub(Box::new(args[0].clone()), Box::new(args[1].clone())),
-                            );
+                            Expr::Sub(Box::new(args[0].clone()), Box::new(args[1].clone()))
                         }
-                        _ => todo!(),
-                    }
+                        ValueOps::Mul => {
+                            Expr::Mul(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Div => {
+                            Expr::Div(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Eq => {
+                            Expr::Eq(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Lt => {
+                            Expr::Lt(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Gt => {
+                            Expr::Gt(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Le => {
+                            Expr::Le(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Ge => {
+                            Expr::Ge(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Not => Expr::Not(Box::new(args[0].clone())),
+                        ValueOps::And => {
+                            Expr::And(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Or => {
+                            Expr::Or(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
+                        ValueOps::Id => args[0].clone(),
+                        ValueOps::Call => todo!(),
+                    };
+
+                    vars.insert(dest, expr);
                 }
-                Instruction::Effect { args, op, .. } => {
+                Instruction::Effect {
+                    args, op, funcs, ..
+                } => {
                     let args = args
                         .into_iter()
                         .map(|arg| vars.get(&arg).unwrap())
@@ -92,6 +134,13 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
                         EffectOps::Return => {
                             state = Expr::Ret(
                                 args.get(0).map(|&e| e.clone()).map(Box::new),
+                                Box::new(state),
+                            );
+                        }
+                        EffectOps::Call => {
+                            state = Expr::Call(
+                                funcs[0].clone(),
+                                args.into_iter().cloned().collect(),
                                 Box::new(state),
                             );
                         }
@@ -112,7 +161,7 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
     }
 }
 
-fn to_rvsdg(
+pub fn to_rvsdg(
     demand: Annotation<HashSet<String>>,
     args: HashMap<String, usize>,
     outputs: &[String],
