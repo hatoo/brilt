@@ -97,8 +97,8 @@ pub fn read_write_annotation(sa: StructureAnalysis) -> Annotation<ReadWrite> {
             let mut read_write = ReadWrite::default();
 
             for code in codes.iter().rev() {
-                match code {
-                    Code::Instruction(instr) => match instr {
+                if let Code::Instruction(instr) = code {
+                    match instr {
                         bril_rs::Instruction::Constant { dest, .. } => {
                             read_write.read.remove(dest);
                             read_write.write.insert(dest.clone());
@@ -112,9 +112,7 @@ pub fn read_write_annotation(sa: StructureAnalysis) -> Annotation<ReadWrite> {
                         bril_rs::Instruction::Effect { args, .. } => {
                             read_write.read.extend(args.iter().cloned());
                         }
-                    },
-
-                    _ => {}
+                    }
                 }
             }
 
