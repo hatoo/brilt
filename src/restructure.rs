@@ -3,7 +3,7 @@ use crate::{
     graph::{dominants_sub, scc_sub},
 };
 use bimap::BiMap;
-use bril_rs::{Code, ConstOps, Instruction, Literal, Type};
+use bril_rs::{Code, ConstOps, Instruction, Literal, Type, ValueOps};
 use petgraph::{prelude::DiGraphMap, Direction};
 use std::{
     collections::{HashMap, HashSet},
@@ -138,6 +138,71 @@ impl StructureAnalysis {
             StructureAnalysis::Branch(_, ss) => {
                 for s in ss {
                     s.clean();
+                }
+            }
+        }
+    }
+
+    fn split_effect(&mut self) {
+        match self {
+            StructureAnalysis::Block(codes) => {
+                let mut new_block = Vec::new();
+
+                let mut current_block = Vec::new();
+
+                for code in codes {
+                    let code = code.clone();
+                    match code {
+                        Code::Instruction(Instruction::Effect { .. }) => {
+                            if !current_block.is_empty() {
+                                new_block.push(current_block);
+                                current_block = Vec::new();
+                            }
+
+                            new_block.push(vec![code]);
+                        }
+                        Code::Instruction(Instruction::Value { op, .. })
+                            if op == ValueOps::Call =>
+                        {
+                            if !current_block.is_empty() {
+                                new_block.push(current_block);
+                                current_block = Vec::new();
+                            }
+
+                            new_block.push(vec![code]);
+                        }
+                        _ => {
+                            current_block.push(code);
+                        }
+                    }
+                }
+
+                if !current_block.is_empty() {
+                    new_block.push(current_block);
+                }
+
+                if new_block.len() == 1 {
+                    *self = StructureAnalysis::Block(new_block.pop().unwrap());
+                } else {
+                    *self = StructureAnalysis::Linear(
+                        new_block
+                            .into_iter()
+                            .map(|codes| StructureAnalysis::Block(codes))
+                            .collect(),
+                    );
+                }
+            }
+            StructureAnalysis::Linear(ss) => {
+                for s in ss {
+                    s.split_effect();
+                }
+            }
+            StructureAnalysis::Loop(s) => {
+                s.split_effect();
+            }
+            StructureAnalysis::Branch(_, ss) => {
+                for s in ss {
+                    s.split_effect();
                 }
             }
         }
