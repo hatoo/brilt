@@ -1,0 +1,16 @@
+@main() {
+  one: int = const 1;
+  two: int = const 2;
+  three: int = const 3;
+  cond: bool = const true;
+  br cond .then .else;
+.then:
+  ret one;
+.else:
+  br cond .then1 .else1;
+.then1:
+  ret three;
+.else1:  
+  print one;
+  ret two;
+}
