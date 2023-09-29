@@ -143,7 +143,7 @@ impl StructureAnalysis {
         }
     }
 
-    fn split_effect(&mut self) {
+    pub(crate) fn split_effect(&mut self) {
         match self {
             StructureAnalysis::Block(codes) => {
                 let mut new_block = Vec::new();

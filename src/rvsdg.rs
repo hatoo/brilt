@@ -11,14 +11,17 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+pub enum StateExpr {
+    Arg(usize),
+    Print(usize),
+    Return(Option<usize>),
+    Call(String, Vec<usize>),
+}
+
+#[derive(Debug, Clone)]
 pub enum Expr {
     // RVSDG
     Arg(usize),
-    State,
-    // EffectOps
-    Print(Box<Expr>, Box<Expr>),
-    Ret(Option<Box<Expr>>, Box<Expr>),
-    Call(String, Vec<Expr>, Box<Expr>),
     // ConstOps
     ConstInt(i64),
     ConstBool(bool),
@@ -41,7 +44,9 @@ pub enum Expr {
 pub enum Rvsdg {
     Simple {
         outputs: Vec<Expr>,
-        state: Expr,
+    },
+    StateFul {
+        outputs: Vec<StateExpr>,
     },
     Linear(Vec<Rvsdg>),
     // Gamma node
@@ -58,13 +63,14 @@ pub enum Rvsdg {
 }
 
 impl Rvsdg {
-    pub fn new(args: &[String], structure: StructureAnalysis) -> Self {
+    pub fn new(args: &[String], mut structure: StructureAnalysis) -> Self {
         let args = args
             .iter()
             .enumerate()
             .map(|(i, v)| (v.clone(), i))
             .collect::<HashMap<_, _>>();
 
+        structure.split_effect();
         let rw = read_write_annotation(structure);
         let demand = demand_set_annotation(rw);
 
@@ -72,12 +78,104 @@ impl Rvsdg {
     }
 }
 
+fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]) -> Option<Rvsdg> {
+    match code {
+        Code::Instruction(instr) => match instr {
+            Instruction::Effect {
+                args: arguments,
+                funcs,
+                op,
+                ..
+            } => match op {
+                EffectOps::Print => {
+                    let arg = args[&arguments[0]];
+                    let expr = StateExpr::Print(arg);
+
+                    Some(Rvsdg::StateFul {
+                        outputs: outputs
+                            .iter()
+                            .map(|s| StateExpr::Arg(args[s]))
+                            .chain(std::iter::once(expr))
+                            .collect(),
+                    })
+                }
+                EffectOps::Return => {
+                    let arg = arguments.get(0).map(|v| args[v]);
+                    let expr = StateExpr::Return(arg);
+
+                    Some(Rvsdg::StateFul {
+                        outputs: outputs
+                            .iter()
+                            .map(|s| StateExpr::Arg(args[s]))
+                            .chain(std::iter::once(expr))
+                            .collect(),
+                    })
+                }
+                EffectOps::Call => {
+                    let expr = StateExpr::Call(
+                        funcs[0].clone(),
+                        arguments.iter().map(|v| args[v]).collect(),
+                    );
+
+                    Some(Rvsdg::StateFul {
+                        outputs: outputs
+                            .iter()
+                            .map(|s| StateExpr::Arg(args[s]))
+                            .chain(std::iter::once(expr))
+                            .collect(),
+                    })
+                }
+                _ => None,
+            },
+            Instruction::Value {
+                args: arguments,
+                dest,
+                funcs,
+                op,
+                ..
+            } if op == &ValueOps::Call => {
+                let expr = StateExpr::Call(
+                    funcs[0].clone(),
+                    arguments.iter().map(|v| args[v]).collect(),
+                );
+
+                let mut used = false;
+
+                let mut outputs: Vec<StateExpr> = outputs
+                    .iter()
+                    .map(|s| {
+                        if s == dest {
+                            used = true;
+                            expr.clone()
+                        } else {
+                            StateExpr::Arg(args[s])
+                        }
+                    })
+                    .collect();
+
+                if !used {
+                    outputs.push(expr);
+                }
+
+                Some(Rvsdg::StateFul { outputs })
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[String]) -> Rvsdg {
+    if codes.len() == 1 {
+        if let Some(rvsdg) = to_rvsdg_state(&codes[0], &args, outputs) {
+            return rvsdg;
+        }
+    }
+
     let mut vars = args
         .into_iter()
         .map(|(k, v)| (k, Expr::Arg(v)))
         .collect::<HashMap<_, _>>();
-    let mut state = Expr::State;
 
     for code in codes {
         match code {
@@ -137,34 +235,7 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
 
                     vars.insert(dest, expr);
                 }
-                Instruction::Effect {
-                    args, op, funcs, ..
-                } => {
-                    let args = args
-                        .into_iter()
-                        .map(|arg| vars.get(&arg).unwrap())
-                        .collect::<Vec<_>>();
-                    match op {
-                        EffectOps::Nop => {}
-                        EffectOps::Print => {
-                            state = Expr::Print(Box::new(args[0].clone()), Box::new(state));
-                        }
-                        EffectOps::Return => {
-                            state = Expr::Ret(
-                                args.get(0).map(|&e| e.clone()).map(Box::new),
-                                Box::new(state),
-                            );
-                        }
-                        EffectOps::Call => {
-                            state = Expr::Call(
-                                funcs[0].clone(),
-                                args.into_iter().cloned().collect(),
-                                Box::new(state),
-                            );
-                        }
-                        _ => unreachable!(),
-                    }
-                }
+                Instruction::Effect { .. } => unreachable!(),
             },
             _ => unreachable!(),
         }
@@ -175,7 +246,6 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
             .iter()
             .map(|var| vars.remove(var).unwrap())
             .collect(),
-        state,
     }
 }
 
@@ -229,7 +299,6 @@ fn to_rvsdg(
             if v.is_empty() {
                 Rvsdg::Simple {
                     outputs: outputs.iter().map(|v| Expr::Arg(args[v])).collect(),
-                    state: Expr::State,
                 }
             } else {
                 let mut args = args;
@@ -282,7 +351,8 @@ mod test {
                 eprintln!("{}", function);
                 let cfg = Cfg::new(&function.instrs);
 
-                let sa = StructureAnalysis::new(cfg);
+                let mut sa = StructureAnalysis::new(cfg);
+                sa.split_effect();
                 let rw = read_write_annotation(sa);
                 let ds = demand_set_annotation(rw);
                 // eprintln!("{}", &ds);
