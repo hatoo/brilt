@@ -45,6 +45,8 @@ pub enum Rvsdg {
     Simple {
         outputs: Vec<Expr>,
     },
+    // Original RVSDG has state edges but I've chosen to introduce a new node type that has single stateful operation
+    // and its order is preserved by the linear node to (hopefully) make the representation egglog friendly.
     StateFul {
         outputs: Vec<StateExpr>,
     },
