@@ -77,10 +77,8 @@ pub fn dominants_sub<N: Eq + NodeTrait, E>(
 
     while let Some(v) = stack.pop() {
         for n in graph.neighbors(v) {
-            if sub_vs.contains(&n) {
-                if dominants.insert(n) {
-                    stack.push(n);
-                }
+            if sub_vs.contains(&n) && dominants.insert(n) {
+                stack.push(n);
             }
         }
     }

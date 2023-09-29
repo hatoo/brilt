@@ -167,13 +167,13 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
 
 fn to_rvsdg_block(codes: &[Code], args: &HashMap<String, usize>, outputs: &[String]) -> Rvsdg {
     if codes.len() == 1 {
-        if let Some(rvsdg) = to_rvsdg_state(&codes[0], &args, outputs) {
+        if let Some(rvsdg) = to_rvsdg_state(&codes[0], args, outputs) {
             return rvsdg;
         }
     }
 
     let mut vars = args
-        .into_iter()
+        .iter()
         .map(|(k, &v)| (k, Expr::Arg(v)))
         .collect::<HashMap<_, _>>();
 
@@ -182,15 +182,15 @@ fn to_rvsdg_block(codes: &[Code], args: &HashMap<String, usize>, outputs: &[Stri
             Code::Instruction(instr) => match instr {
                 Instruction::Constant { dest, value, .. } => match value {
                     Literal::Int(i) => {
-                        vars.insert(&dest, Expr::ConstInt(*i));
+                        vars.insert(dest, Expr::ConstInt(*i));
                     }
                     Literal::Bool(b) => {
-                        vars.insert(&dest, Expr::ConstBool(*b));
+                        vars.insert(dest, Expr::ConstBool(*b));
                     }
                 },
                 Instruction::Value { args, dest, op, .. } => {
                     let args = args
-                        .into_iter()
+                        .iter()
                         .map(|arg| vars.get(&arg).unwrap())
                         .collect::<Vec<_>>();
 
@@ -233,7 +233,7 @@ fn to_rvsdg_block(codes: &[Code], args: &HashMap<String, usize>, outputs: &[Stri
                         ValueOps::Call => todo!(),
                     };
 
-                    vars.insert(&dest, expr);
+                    vars.insert(dest, expr);
                 }
                 Instruction::Effect { .. } => unreachable!(),
             },

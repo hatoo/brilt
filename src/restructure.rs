@@ -187,7 +187,7 @@ impl StructureAnalysis {
                     *self = StructureAnalysis::Linear(
                         new_block
                             .into_iter()
-                            .map(|codes| StructureAnalysis::Block(codes))
+                            .map(StructureAnalysis::Block)
                             .collect(),
                     );
                 }
@@ -330,7 +330,7 @@ impl RestructuredCfg {
             .collect::<HashSet<_>>();
         let exit_vs = exit_arcs.iter().map(|e| e.1).collect::<HashSet<_>>();
 
-        let (single_entry, entry_index) = if entry_vs.len() > 0 {
+        let (single_entry, entry_index) = if !entry_vs.is_empty() {
             let mut entries = entry_vs.iter().copied().collect::<Vec<_>>();
             entries.sort();
             let entry_index = entries
@@ -445,7 +445,7 @@ impl RestructuredCfg {
         while sub_vs.contains(&node) {
             let succs = self.graph.neighbors(node).collect::<Vec<_>>();
 
-            if succs.len() == 0 {
+            if succs.is_empty() {
                 break;
             }
 
@@ -527,7 +527,7 @@ impl RestructuredCfg {
             drop(dominants);
             drop(tails);
 
-            if continuation_points.len() == 0 {
+            if continuation_points.is_empty() {
                 let null_node = self.new_null_node();
 
                 for (_, b) in branches {
@@ -622,9 +622,9 @@ impl RestructuredCfg {
 
             let succs = self.graph.neighbors(*start).collect::<Vec<_>>();
 
-            let s0 = StructureAnalysis::Block(self.block_map.get(&start).unwrap().clone());
+            let s0 = StructureAnalysis::Block(self.block_map.get(start).unwrap().clone());
 
-            if succs.len() == 0 {
+            if succs.is_empty() {
                 linear.push(s0);
                 break;
             }
@@ -637,8 +637,8 @@ impl RestructuredCfg {
             let s = if succs.len() == 1 {
                 if is_loop_entry {
                     *start = succs[0];
-                    let r = StructureAnalysis::Linear(vec![s0, self.structure_rec(start)]);
-                    r
+
+                    StructureAnalysis::Linear(vec![s0, self.structure_rec(start)])
                 } else {
                     *start = succs[0];
                     s0
