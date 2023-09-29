@@ -74,7 +74,7 @@ impl Rvsdg {
         let rw = read_write_annotation(structure);
         let demand = demand_set_annotation(rw);
 
-        to_rvsdg(demand, args, &[])
+        to_rvsdg(demand, &args, &[])
     }
 }
 
@@ -165,7 +165,7 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
     }
 }
 
-fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[String]) -> Rvsdg {
+fn to_rvsdg_block(codes: &[Code], args: &HashMap<String, usize>, outputs: &[String]) -> Rvsdg {
     if codes.len() == 1 {
         if let Some(rvsdg) = to_rvsdg_state(&codes[0], &args, outputs) {
             return rvsdg;
@@ -174,7 +174,7 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
 
     let mut vars = args
         .into_iter()
-        .map(|(k, v)| (k, Expr::Arg(v)))
+        .map(|(k, &v)| (k, Expr::Arg(v)))
         .collect::<HashMap<_, _>>();
 
     for code in codes {
@@ -182,10 +182,10 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
             Code::Instruction(instr) => match instr {
                 Instruction::Constant { dest, value, .. } => match value {
                     Literal::Int(i) => {
-                        vars.insert(dest, Expr::ConstInt(i));
+                        vars.insert(&dest, Expr::ConstInt(*i));
                     }
                     Literal::Bool(b) => {
-                        vars.insert(dest, Expr::ConstBool(b));
+                        vars.insert(&dest, Expr::ConstBool(*b));
                     }
                 },
                 Instruction::Value { args, dest, op, .. } => {
@@ -233,7 +233,7 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
                         ValueOps::Call => todo!(),
                     };
 
-                    vars.insert(dest, expr);
+                    vars.insert(&dest, expr);
                 }
                 Instruction::Effect { .. } => unreachable!(),
             },
@@ -251,15 +251,15 @@ fn to_rvsdg_block(codes: Vec<Code>, args: HashMap<String, usize>, outputs: &[Str
 
 fn to_rvsdg(
     demand: Annotation<HashSet<String>>,
-    args: HashMap<String, usize>,
+    args: &HashMap<String, usize>,
     outputs: &[String],
 ) -> Rvsdg {
     match demand {
-        Annotation::Block(codes, _) => to_rvsdg_block(codes, args, outputs),
+        Annotation::Block(codes, _) => to_rvsdg_block(&codes, args, outputs),
         Annotation::Branch(cond_var, branches, _) => {
             let branches = branches
                 .into_iter()
-                .map(|a| to_rvsdg(a, args.clone(), outputs))
+                .map(|a| to_rvsdg(a, args, outputs))
                 .collect::<Vec<_>>();
 
             Rvsdg::Branch {
@@ -301,7 +301,7 @@ fn to_rvsdg(
                     outputs: outputs.iter().map(|v| Expr::Arg(args[v])).collect(),
                 }
             } else {
-                let mut args = args;
+                let mut args = args.clone();
                 let mut out = Vec::new();
                 for i in 0..v.len() {
                     let outputs = v
@@ -309,7 +309,7 @@ fn to_rvsdg(
                         .map(|a| Cow::Owned(a.annotation().iter().cloned().collect::<Vec<_>>()))
                         .unwrap_or(Cow::Borrowed(outputs));
 
-                    out.push(to_rvsdg(v[i].clone(), args, &outputs));
+                    out.push(to_rvsdg(v[i].clone(), &args, &outputs));
 
                     args = outputs
                         .iter()
@@ -358,7 +358,7 @@ mod test {
                 // eprintln!("{}", &ds);
                 let rvsdg = to_rvsdg(
                     ds,
-                    function
+                    &function
                         .args
                         .iter()
                         .enumerate()
