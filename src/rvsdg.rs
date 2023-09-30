@@ -455,24 +455,20 @@ impl Rvsdg {
             label_counter: 0,
         };
 
-        let mut cache = HashMap::new();
-
-        self.build_bril(args, &mut builder, &mut cache);
+        self.build_bril(args, &mut builder);
 
         builder.codes
     }
 
-    fn build_bril(
-        &self,
-        args: &[Argument],
-        builder: &mut BrilBuilder,
-        cache: &mut HashMap<Expr, Argument>,
-    ) -> Vec<Argument> {
+    fn build_bril(&self, args: &[Argument], builder: &mut BrilBuilder) -> Vec<Argument> {
         match self {
-            Rvsdg::Simple { outputs } => outputs
-                .iter()
-                .map(|v| builder.add_expr(args, v, cache))
-                .collect(),
+            Rvsdg::Simple { outputs } => {
+                let mut cache = HashMap::new();
+                outputs
+                    .iter()
+                    .map(|v| builder.add_expr(args, v, &mut cache))
+                    .collect()
+            }
             Rvsdg::StateFul { outputs } => outputs
                 .iter()
                 .flat_map(|v| builder.add_state_expr(args, v.clone()))
@@ -480,7 +476,7 @@ impl Rvsdg {
             Rvsdg::Linear(v) => {
                 let mut args = args.to_vec();
                 for rvsdg in v {
-                    args = rvsdg.build_bril(&args, builder, cache);
+                    args = rvsdg.build_bril(&args, builder);
                 }
                 args
             }
@@ -503,7 +499,7 @@ impl Rvsdg {
 
                 // then block
                 builder.add_code(Code::Label { label: then_label });
-                let then_outputs = branches[0].build_bril(args, builder, &mut cache.clone());
+                let then_outputs = branches[0].build_bril(args, builder);
                 builder.add_code(Code::Instruction(Instruction::Effect {
                     args: vec![],
                     funcs: vec![],
@@ -513,7 +509,7 @@ impl Rvsdg {
 
                 // else block
                 builder.add_code(Code::Label { label: else_label });
-                let else_outputs = branches[1].build_bril(args, builder, &mut cache.clone());
+                let else_outputs = branches[1].build_bril(args, builder);
 
                 builder.var_map(&else_outputs, &then_outputs);
                 builder.add_code(Code::Label { label: end_label });
@@ -532,7 +528,7 @@ impl Rvsdg {
                         Box::new(Expr::Arg(*cond_index)),
                         Box::new(Expr::ConstInt(0)),
                     ),
-                    cache,
+                    &mut HashMap::new(),
                 );
                 let then0 = builder.new_label();
                 let else0 = builder.new_label();
@@ -545,7 +541,7 @@ impl Rvsdg {
                 }));
 
                 builder.add_code(Code::Label { label: then0 });
-                let outputs = branches[0].build_bril(args, builder, &mut cache.clone());
+                let outputs = branches[0].build_bril(args, builder);
 
                 let mut else_label = else0;
 
@@ -562,7 +558,7 @@ impl Rvsdg {
                             Box::new(Expr::Arg(*cond_index)),
                             Box::new(Expr::ConstInt(i as i64)),
                         ),
-                        cache,
+                        &mut HashMap::new(),
                     );
 
                     builder.add_code(Code::Instruction(Instruction::Effect {
@@ -573,7 +569,7 @@ impl Rvsdg {
                     }));
 
                     builder.add_code(Code::Label { label: then_label });
-                    let outs = b.build_bril(args, builder, cache);
+                    let outs = b.build_bril(args, builder);
 
                     builder.var_map(&outs, &outputs);
 
@@ -606,7 +602,7 @@ impl Rvsdg {
                     label: loop_head.clone(),
                 });
 
-                let outs = body.build_bril(args, builder, &mut cache.clone());
+                let outs = body.build_bril(args, builder);
                 builder.var_map(&outs, args);
                 builder.add_code(Code::Instruction(Instruction::Effect {
                     args: vec![outs[*cond_index].name.clone()],
