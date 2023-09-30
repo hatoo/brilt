@@ -3,10 +3,11 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use bril_rs::{Code, EffectOps, Instruction, Literal, ValueOps};
+use bril_rs::{Code, ConstOps, EffectOps, Instruction, Literal, Type, ValueOps};
 
 use crate::{
     annotation::{demand_set_annotation, read_write_annotation, Annotation},
+    cfg::Cfg,
     restructure::StructureAnalysis,
 };
 
@@ -18,7 +19,7 @@ pub enum StateExpr {
     Call(String, Vec<usize>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     // RVSDG
     Arg(usize),
@@ -62,6 +63,244 @@ pub enum Rvsdg {
         cond_index: usize,
         outputs: Vec<usize>,
     },
+}
+
+struct BrilBuilder {
+    codes: Vec<Code>,
+    var_counter: usize,
+    label_counter: usize,
+}
+
+impl BrilBuilder {
+    fn add_code(&mut self, code: Code) {
+        self.codes.push(code);
+    }
+}
+
+impl BrilBuilder {
+    fn new_var(&mut self) -> String {
+        let var = format!("v{}", self.var_counter);
+        self.var_counter += 1;
+        var
+    }
+
+    fn add_expr(
+        &mut self,
+        args: &[String],
+        expr: &Expr,
+        cache: &mut HashMap<Expr, String>,
+    ) -> String {
+        if let Some(var) = cache.get(expr) {
+            var.clone()
+        } else {
+            // FIXME: use macro
+            let var: String = match expr {
+                Expr::Arg(n) => args[*n].clone(),
+                Expr::ConstInt(i) => {
+                    let dest = self.new_var();
+                    self.add_code(Code::Instruction(Instruction::Constant {
+                        dest: dest.clone(),
+                        op: ConstOps::Const,
+                        value: Literal::Int(*i),
+                        const_type: Type::Int,
+                    }));
+                    dest
+                }
+                Expr::ConstBool(b) => {
+                    let dest = self.new_var();
+                    self.add_code(Code::Instruction(Instruction::Constant {
+                        dest: dest.clone(),
+                        op: ConstOps::Const,
+                        value: Literal::Bool(*b),
+                        const_type: Type::Bool,
+                    }));
+                    dest
+                }
+                Expr::Add(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Add,
+                        op_type: Type::Int,
+                    }));
+                    dest
+                }
+                Expr::Sub(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Sub,
+                        op_type: Type::Int,
+                    }));
+                    dest
+                }
+                Expr::Mul(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Mul,
+                        op_type: Type::Int,
+                    }));
+                    dest
+                }
+                Expr::Div(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Div,
+                        op_type: Type::Int,
+                    }));
+                    dest
+                }
+                Expr::Eq(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Eq,
+                        op_type: Type::Bool,
+                    }));
+                    dest
+                }
+                Expr::Lt(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Lt,
+                        op_type: Type::Bool,
+                    }));
+                    dest
+                }
+                Expr::Gt(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Gt,
+                        op_type: Type::Bool,
+                    }));
+                    dest
+                }
+                Expr::Le(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Le,
+                        op_type: Type::Bool,
+                    }));
+                    dest
+                }
+                Expr::Ge(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Ge,
+                        op_type: Type::Bool,
+                    }));
+                    dest
+                }
+                Expr::Not(arg) => {
+                    let dest = self.new_var();
+                    let arg = self.add_expr(args, &arg, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![arg],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Not,
+                        op_type: Type::Bool,
+                    }));
+                    dest
+                }
+                Expr::And(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::And,
+                        op_type: Type::Bool,
+                    }));
+                    dest
+                }
+                Expr::Or(lhs, rhs) => {
+                    let dest = self.new_var();
+                    let lhs = self.add_expr(args, &lhs, cache);
+                    let rhs = self.add_expr(args, &rhs, cache);
+
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: vec![lhs, rhs],
+                        dest: dest.clone(),
+                        funcs: vec![],
+                        labels: vec![],
+                        op: ValueOps::Or,
+                        op_type: Type::Bool,
+                    }));
+                    dest
+                }
+            };
+
+            cache.insert(expr.clone(), var.clone());
+            var
+        }
+    }
 }
 
 impl Rvsdg {
