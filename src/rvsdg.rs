@@ -464,10 +464,30 @@ impl Rvsdg {
         match self {
             Rvsdg::Simple { outputs } => {
                 let mut cache = HashMap::new();
-                outputs
+                let mut outs: Vec<Argument> = outputs
                     .iter()
                     .map(|v| builder.add_expr(args, v, &mut cache))
-                    .collect()
+                    .collect();
+
+                // make each outputs distinct
+                let mut used: HashSet<&str> = HashSet::new();
+                for v in &mut outs {
+                    if used.contains(v.name.as_str()) {
+                        let var = builder.new_var();
+                        builder.add_code(Code::Instruction(Instruction::Value {
+                            args: vec![v.name.clone()],
+                            dest: var.clone(),
+                            funcs: vec![],
+                            labels: vec![],
+                            op: ValueOps::Id,
+                            op_type: v.arg_type.clone(),
+                        }));
+                        v.name = var;
+                    } else {
+                        used.insert(&v.name);
+                    }
+                }
+                outs
             }
             Rvsdg::StateFul { outputs } => outputs
                 .iter()
@@ -952,7 +972,7 @@ mod test {
 
                 let codes = rvsdg.to_bril(&function.args);
 
-                dbg!(&rvsdg);
+                // dbg!(&rvsdg);
 
                 eprintln!();
 
@@ -960,6 +980,48 @@ mod test {
                 f.instrs = codes;
                 eprintln!("{}", f);
             }
+        }
+    }
+
+    #[test]
+    fn test_rvsdg_brili() {
+        for entry in glob("bril/examples/test/df/*.bril")
+            .unwrap()
+            .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+        {
+            let path = entry.unwrap();
+            let src = std::fs::read_to_string(&path).unwrap();
+            let json_before = bril2json(src.as_str());
+            let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
+
+            println!("checking {} ... ", path.to_str().unwrap());
+            for function in &mut program.functions {
+                let cfg = Cfg::new(&function.instrs);
+
+                let mut sa = StructureAnalysis::new(cfg);
+                sa.split_effect();
+                let rw = read_write_annotation(sa);
+                let ds = demand_set_annotation(rw);
+                // eprintln!("{}", &ds);
+                let rvsdg = to_rvsdg(
+                    ds,
+                    &function
+                        .args
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| (v.name.clone(), i))
+                        .collect(),
+                    &[],
+                );
+
+                let codes = rvsdg.to_bril(&function.args);
+
+                function.instrs = codes;
+            }
+
+            let json_after = serde_json::to_string_pretty(&program).unwrap();
+
+            assert_eq!(brili(&json_before).0, brili(&json_after).0);
         }
     }
 }
