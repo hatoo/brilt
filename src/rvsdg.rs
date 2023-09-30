@@ -53,7 +53,14 @@ pub enum Rvsdg {
     },
     Linear(Vec<Rvsdg>),
     // Gamma node
-    Branch {
+    // cond_var is a bool
+    BranchIf {
+        cond_index: usize,
+        // them else
+        branches: [Box<Rvsdg>; 2],
+    },
+    // cond_var is an int
+    BranchSwitch {
         cond_index: usize,
         branches: Vec<Rvsdg>,
     },
@@ -84,6 +91,12 @@ impl BrilBuilder {
         var
     }
 
+    fn new_label(&mut self) -> String {
+        let label = format!("l{}", self.label_counter);
+        self.label_counter += 1;
+        label
+    }
+
     fn add_expr(
         &mut self,
         args: &[String],
@@ -95,7 +108,7 @@ impl BrilBuilder {
         } else {
             // FIXME: use macro
             let var: String = match expr {
-                Expr::Arg(n) => args[*n].clone(),
+                Expr::Arg(n) => return args[*n].clone(),
                 Expr::ConstInt(i) => {
                     let dest = self.new_var();
                     self.add_code(Code::Instruction(Instruction::Constant {
@@ -301,6 +314,57 @@ impl BrilBuilder {
             var
         }
     }
+
+    fn add_state_expr(&mut self, args: &[String], state_expr: StateExpr) -> String {
+        match state_expr {
+            StateExpr::Arg(n) => args[n].clone(),
+            StateExpr::Print(n) => {
+                let var = self.new_var();
+                self.add_code(Code::Instruction(Instruction::Effect {
+                    op: EffectOps::Print,
+                    args: vec![args[n].clone()],
+                    funcs: vec![],
+                    labels: vec![],
+                }));
+                var
+            }
+            StateExpr::Return(n) => {
+                let var = self.new_var();
+                self.add_code(Code::Instruction(Instruction::Effect {
+                    op: EffectOps::Return,
+                    args: n.into_iter().map(|n| args[n].clone()).collect(),
+                    funcs: vec![],
+                    labels: vec![],
+                }));
+                var
+            }
+            StateExpr::Call(func, call_args) => {
+                let var = self.new_var();
+                self.add_code(Code::Instruction(Instruction::Effect {
+                    op: EffectOps::Call,
+                    args: call_args.into_iter().map(|n| args[n].clone()).collect(),
+                    funcs: vec![func],
+                    labels: vec![],
+                }));
+                var
+            }
+        }
+    }
+
+    fn var_map(&mut self, from: &[String], to: &[String]) {
+        for (f, t) in from.iter().zip(to.iter()) {
+            // TODO: add phi node
+            self.add_code(Code::Instruction(Instruction::Value {
+                args: vec![f.clone()],
+                dest: t.clone(),
+                funcs: vec![],
+                labels: vec![],
+                op: ValueOps::Id,
+                // FIXME
+                op_type: Type::Int,
+            }));
+        }
+    }
 }
 
 impl Rvsdg {
@@ -316,6 +380,179 @@ impl Rvsdg {
         let demand = demand_set_annotation(rw);
 
         to_rvsdg(demand, &args, &[])
+    }
+
+    pub fn to_bril(&self, args: &[String]) -> Vec<Code> {
+        let mut builder = BrilBuilder {
+            codes: Vec::new(),
+            var_counter: 0,
+            label_counter: 0,
+        };
+
+        let mut cache = HashMap::new();
+
+        self.build_bril(args, &mut builder, &mut cache);
+
+        builder.codes
+    }
+
+    fn build_bril(
+        &self,
+        args: &[String],
+        builder: &mut BrilBuilder,
+        cache: &mut HashMap<Expr, String>,
+    ) -> Vec<String> {
+        match self {
+            Rvsdg::Simple { outputs } => outputs
+                .iter()
+                .map(|v| builder.add_expr(args, v, cache))
+                .collect(),
+            Rvsdg::StateFul { outputs } => outputs
+                .iter()
+                .map(|v| builder.add_state_expr(args, v.clone()))
+                .collect(),
+            Rvsdg::Linear(v) => {
+                let mut args = args.to_vec();
+                for rvsdg in v {
+                    args = rvsdg.build_bril(&args, builder, cache);
+                }
+                args
+            }
+            Rvsdg::BranchIf {
+                cond_index,
+                branches,
+            } => {
+                let end_label = builder.new_label();
+                let then_label = builder.new_label();
+                let else_label = builder.new_label();
+
+                let cond_var = args[*cond_index].clone();
+
+                builder.add_code(Code::Instruction(Instruction::Effect {
+                    op: EffectOps::Branch,
+                    args: vec![cond_var],
+                    funcs: vec![],
+                    labels: vec![then_label.clone(), else_label.clone()],
+                }));
+
+                // then block
+                builder.add_code(Code::Label { label: then_label });
+                let then_outputs = branches[0].build_bril(args, builder, &mut cache.clone());
+                builder.add_code(Code::Instruction(Instruction::Effect {
+                    args: vec![],
+                    funcs: vec![],
+                    labels: vec![end_label.clone()],
+                    op: EffectOps::Jump,
+                }));
+
+                // else block
+                builder.add_code(Code::Label { label: else_label });
+                let else_outputs = branches[1].build_bril(args, builder, &mut cache.clone());
+
+                builder.var_map(&else_outputs, &then_outputs);
+                builder.add_code(Code::Label { label: end_label });
+
+                then_outputs
+            }
+            Rvsdg::BranchSwitch {
+                cond_index,
+                branches,
+            } => {
+                let end_label = builder.new_label();
+
+                let is0 = builder.add_expr(
+                    args,
+                    &Expr::Eq(
+                        Box::new(Expr::Arg(*cond_index)),
+                        Box::new(Expr::ConstInt(0)),
+                    ),
+                    cache,
+                );
+                let then0 = builder.new_label();
+                let else0 = builder.new_label();
+
+                builder.add_code(Code::Instruction(Instruction::Effect {
+                    args: vec![is0],
+                    funcs: vec![],
+                    labels: vec![then0.clone(), else0.clone()],
+                    op: EffectOps::Branch,
+                }));
+
+                builder.add_code(Code::Label { label: then0 });
+                let outputs = branches[0].build_bril(args, builder, &mut cache.clone());
+
+                let mut else_label = else0;
+
+                for (b, i) in branches[1..].iter().zip(1..) {
+                    builder.add_code(Code::Label {
+                        label: else_label.clone(),
+                    });
+                    let then_label = builder.new_label();
+                    let new_else_label = builder.new_label();
+
+                    let is_i = builder.add_expr(
+                        args,
+                        &Expr::Eq(
+                            Box::new(Expr::Arg(*cond_index)),
+                            Box::new(Expr::ConstInt(i as i64)),
+                        ),
+                        cache,
+                    );
+
+                    builder.add_code(Code::Instruction(Instruction::Effect {
+                        args: vec![is_i],
+                        funcs: vec![],
+                        labels: vec![then_label.clone(), new_else_label.clone()],
+                        op: EffectOps::Branch,
+                    }));
+
+                    builder.add_code(Code::Label { label: then_label });
+                    let outs = b.build_bril(args, builder, cache);
+
+                    builder.var_map(&outs, &outputs);
+
+                    builder.add_code(Code::Instruction(Instruction::Effect {
+                        args: vec![],
+                        funcs: vec![],
+                        labels: vec![end_label.clone()],
+                        op: EffectOps::Jump,
+                    }));
+
+                    else_label = new_else_label;
+                }
+                builder.add_code(Code::Label {
+                    label: else_label.clone(),
+                });
+
+                builder.add_code(Code::Label { label: end_label });
+
+                outputs
+            }
+            Rvsdg::Loop {
+                body,
+                cond_index,
+                outputs,
+            } => {
+                let loop_head = builder.new_label();
+                let loop_end = builder.new_label();
+
+                builder.add_code(Code::Label {
+                    label: loop_head.clone(),
+                });
+
+                let outs = body.build_bril(args, builder, &mut cache.clone());
+                builder.var_map(&outs, &args);
+                builder.add_code(Code::Instruction(Instruction::Effect {
+                    args: vec![outs[*cond_index].clone()],
+                    funcs: vec![],
+                    labels: vec![loop_head.clone(), loop_end.clone()],
+                    op: EffectOps::Branch,
+                }));
+
+                builder.add_code(Code::Label { label: loop_end });
+                outputs.iter().map(|i| outs[*i].clone()).collect()
+            }
+        }
     }
 }
 
@@ -471,7 +708,7 @@ fn to_rvsdg_block(codes: &[Code], args: &HashMap<String, usize>, outputs: &[Stri
                             Expr::Or(Box::new(args[0].clone()), Box::new(args[1].clone()))
                         }
                         ValueOps::Id => args[0].clone(),
-                        ValueOps::Call => todo!(),
+                        ValueOps::Call => unreachable!(),
                     };
 
                     vars.insert(dest, expr);
@@ -503,9 +740,15 @@ fn to_rvsdg(
                 .map(|a| to_rvsdg(a, args, outputs))
                 .collect::<Vec<_>>();
 
-            Rvsdg::Branch {
-                cond_index: args.get(&cond_var).copied().unwrap(),
-                branches,
+            match cond_var.as_str() {
+                StructureAnalysis::VAR_P | StructureAnalysis::VAR_Q => Rvsdg::BranchIf {
+                    cond_index: args.get(&cond_var).copied().unwrap(),
+                    branches: [Box::new(branches[0].clone()), Box::new(branches[1].clone())],
+                },
+                _ => Rvsdg::BranchSwitch {
+                    cond_index: args.get(&cond_var).copied().unwrap(),
+                    branches,
+                },
             }
         }
         Annotation::Loop(body, _) => {
@@ -609,6 +852,57 @@ mod test {
                 );
 
                 dbg!(rvsdg);
+            }
+        }
+    }
+
+    #[test]
+    fn test_rvsdg_bril() {
+        for entry in glob("bril/examples/test/df/*.bril")
+            .unwrap()
+            .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+        {
+            let path = entry.unwrap();
+            let src = std::fs::read_to_string(&path).unwrap();
+            let json_before = bril2json(src.as_str());
+            let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
+
+            for function in &mut program.functions {
+                println!("checking {} ... ", path.to_str().unwrap());
+                eprintln!("{}", function);
+                let cfg = Cfg::new(&function.instrs);
+
+                let mut sa = StructureAnalysis::new(cfg);
+                sa.split_effect();
+                let rw = read_write_annotation(sa);
+                let ds = demand_set_annotation(rw);
+                // eprintln!("{}", &ds);
+                let rvsdg = to_rvsdg(
+                    ds,
+                    &function
+                        .args
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| (v.name.clone(), i))
+                        .collect(),
+                    &[],
+                );
+
+                let codes = rvsdg.to_bril(
+                    &function
+                        .args
+                        .iter()
+                        .map(|v| v.name.clone())
+                        .collect::<Vec<_>>(),
+                );
+
+                dbg!(&rvsdg);
+
+                eprintln!();
+
+                let mut f = function.clone();
+                f.instrs = codes;
+                eprintln!("{}", f);
             }
         }
     }
