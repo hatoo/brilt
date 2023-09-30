@@ -48,6 +48,7 @@ pub enum Rvsdg {
     // Original RVSDG has state edges but I've chosen to introduce a new node type that has single stateful operation
     // and its order is preserved by the linear node to (hopefully) make the representation egglog friendly.
     StateFul {
+        // one of the outputs is not a StateExpr::Arg if side_effect is None
         outputs: Vec<StateExpr>,
         // Some() if the stateful operation hasn't return value
         side_effect: Option<StateExpr>,
