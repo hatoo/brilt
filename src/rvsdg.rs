@@ -609,12 +609,14 @@ impl Rvsdg {
 
                     builder.var_map(&outs, &outputs);
 
-                    builder.add_code(Code::Instruction(Instruction::Effect {
-                        args: vec![],
-                        funcs: vec![],
-                        labels: vec![end_label.clone()],
-                        op: EffectOps::Jump,
-                    }));
+                    if i + 1 < branches.len() {
+                        builder.add_code(Code::Instruction(Instruction::Effect {
+                            args: vec![],
+                            funcs: vec![],
+                            labels: vec![end_label.clone()],
+                            op: EffectOps::Jump,
+                        }));
+                    }
 
                     else_label = new_else_label;
                 }
