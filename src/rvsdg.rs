@@ -16,7 +16,6 @@ pub enum StateExpr {
     Print(usize),
     Return(Option<usize>),
     Call(String, Vec<usize>),
-    CallRet(String, Vec<usize>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -50,6 +49,8 @@ pub enum Rvsdg {
     // and its order is preserved by the linear node to (hopefully) make the representation egglog friendly.
     StateFul {
         outputs: Vec<StateExpr>,
+        // Some() if the stateful operation hasn't return value
+        side_effect: Option<StateExpr>,
     },
     Linear(Vec<Rvsdg>),
     // Gamma node
@@ -360,7 +361,12 @@ impl BrilBuilder {
         }
     }
 
-    fn add_state_expr(&mut self, args: &[Argument], state_expr: StateExpr) -> Option<Argument> {
+    fn add_state_expr(
+        &mut self,
+        args: &[Argument],
+        state_expr: StateExpr,
+        need_call_ret: bool,
+    ) -> Option<Argument> {
         match state_expr {
             StateExpr::Arg(n) => Some(args[n].clone()),
             StateExpr::Print(n) => {
@@ -382,37 +388,38 @@ impl BrilBuilder {
                 None
             }
             StateExpr::Call(func, call_args) => {
-                self.add_code(Code::Instruction(Instruction::Effect {
-                    op: EffectOps::Call,
-                    args: call_args
-                        .into_iter()
-                        .map(|n| args[n].name.clone())
-                        .collect(),
-                    funcs: vec![func],
-                    labels: vec![],
-                }));
+                if need_call_ret {
+                    let var = self.new_var();
+                    self.add_code(Code::Instruction(Instruction::Value {
+                        args: call_args
+                            .into_iter()
+                            .map(|n| args[n].name.clone())
+                            .collect(),
+                        dest: var.clone(),
+                        funcs: vec![func],
+                        labels: vec![],
+                        op: ValueOps::Call,
+                        op_type: Type::Int,
+                    }));
 
-                None
-            }
-            StateExpr::CallRet(func, call_args) => {
-                let var = self.new_var();
-                self.add_code(Code::Instruction(Instruction::Value {
-                    args: call_args
-                        .into_iter()
-                        .map(|n| args[n].name.clone())
-                        .collect(),
-                    dest: var.clone(),
-                    funcs: vec![func],
-                    labels: vec![],
-                    op: ValueOps::Call,
-                    op_type: Type::Int,
-                }));
+                    // FIXME: detect correct return type
+                    Some(Argument {
+                        name: var,
+                        arg_type: Type::Int,
+                    })
+                } else {
+                    self.add_code(Code::Instruction(Instruction::Effect {
+                        op: EffectOps::Call,
+                        args: call_args
+                            .into_iter()
+                            .map(|n| args[n].name.clone())
+                            .collect(),
+                        funcs: vec![func],
+                        labels: vec![],
+                    }));
 
-                // FIXME: detect correct return type
-                Some(Argument {
-                    name: var,
-                    arg_type: Type::Int,
-                })
+                    None
+                }
             }
         }
     }
@@ -489,10 +496,18 @@ impl Rvsdg {
                 }
                 outs
             }
-            Rvsdg::StateFul { outputs } => outputs
-                .iter()
-                .flat_map(|v| builder.add_state_expr(args, v.clone()))
-                .collect(),
+            Rvsdg::StateFul {
+                outputs,
+                side_effect,
+            } => {
+                if let Some(state_expr) = side_effect {
+                    builder.add_state_expr(args, state_expr.clone(), false);
+                }
+                outputs
+                    .iter()
+                    .map(|v| builder.add_state_expr(args, v.clone(), true).unwrap())
+                    .collect()
+            }
             Rvsdg::Linear(v) => {
                 let mut args = args.to_vec();
                 for rvsdg in v {
@@ -652,11 +667,8 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
                     let expr = StateExpr::Print(arg);
 
                     Some(Rvsdg::StateFul {
-                        outputs: outputs
-                            .iter()
-                            .map(|s| StateExpr::Arg(args[s]))
-                            .chain(std::iter::once(expr))
-                            .collect(),
+                        outputs: outputs.iter().map(|s| StateExpr::Arg(args[s])).collect(),
+                        side_effect: Some(expr),
                     })
                 }
                 EffectOps::Return => {
@@ -664,11 +676,8 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
                     let expr = StateExpr::Return(arg);
 
                     Some(Rvsdg::StateFul {
-                        outputs: outputs
-                            .iter()
-                            .map(|s| StateExpr::Arg(args[s]))
-                            .chain(std::iter::once(expr))
-                            .collect(),
+                        outputs: outputs.iter().map(|s| StateExpr::Arg(args[s])).collect(),
+                        side_effect: Some(expr),
                     })
                 }
                 EffectOps::Call => {
@@ -678,11 +687,8 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
                     );
 
                     Some(Rvsdg::StateFul {
-                        outputs: outputs
-                            .iter()
-                            .map(|s| StateExpr::Arg(args[s]))
-                            .chain(std::iter::once(expr))
-                            .collect(),
+                        outputs: outputs.iter().map(|s| StateExpr::Arg(args[s])).collect(),
+                        side_effect: Some(expr),
                     })
                 }
                 _ => None,
@@ -694,7 +700,7 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
                 op,
                 ..
             } if op == &ValueOps::Call => {
-                let expr = StateExpr::CallRet(
+                let expr = StateExpr::Call(
                     funcs[0].clone(),
                     arguments.iter().map(|v| args[v]).collect(),
                 );
@@ -717,7 +723,10 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
                     outputs.push(expr);
                 }
 
-                Some(Rvsdg::StateFul { outputs })
+                Some(Rvsdg::StateFul {
+                    outputs,
+                    side_effect: None,
+                })
             }
             _ => None,
         },
