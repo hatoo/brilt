@@ -136,9 +136,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Add(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -155,9 +155,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Sub(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -174,9 +174,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Mul(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -192,9 +192,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Div(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -210,9 +210,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Eq(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -228,9 +228,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Lt(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -246,9 +246,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Gt(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -264,9 +264,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Le(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -282,9 +282,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Ge(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -300,8 +300,8 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Not(arg) => {
-                    let dest = self.new_var();
                     let arg = self.add_expr(args, arg, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![arg.name],
@@ -317,9 +317,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::And(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -336,9 +336,9 @@ impl BrilBuilder {
                     }
                 }
                 Expr::Or(lhs, rhs) => {
-                    let dest = self.new_var();
                     let lhs = self.add_expr(args, lhs, cache);
                     let rhs = self.add_expr(args, rhs, cache);
+                    let dest = self.new_var();
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -616,7 +616,6 @@ impl Rvsdg {
                 outputs,
             } => {
                 let loop_head = builder.new_label();
-                let loop_end = builder.new_label();
 
                 builder.add_code(Code::Label {
                     label: loop_head.clone(),
@@ -624,6 +623,7 @@ impl Rvsdg {
 
                 let outs = body.build_bril(args, builder);
                 builder.var_map(&outs, args);
+                let loop_end = builder.new_label();
                 builder.add_code(Code::Instruction(Instruction::Effect {
                     args: vec![outs[*cond_index].name.clone()],
                     funcs: vec![],
@@ -632,7 +632,7 @@ impl Rvsdg {
                 }));
 
                 builder.add_code(Code::Label { label: loop_end });
-                outputs.iter().map(|i| outs[*i].clone()).collect()
+                outputs.iter().map(|i| args[*i].clone()).collect()
             }
         }
     }
