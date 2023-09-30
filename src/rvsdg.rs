@@ -3,11 +3,10 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use bril_rs::{Code, ConstOps, EffectOps, Instruction, Literal, Type, ValueOps};
+use bril_rs::{Argument, Code, ConstOps, EffectOps, Instruction, Literal, Type, ValueOps};
 
 use crate::{
     annotation::{demand_set_annotation, read_write_annotation, Annotation},
-    cfg::Cfg,
     restructure::StructureAnalysis,
 };
 
@@ -17,6 +16,7 @@ pub enum StateExpr {
     Print(usize),
     Return(Option<usize>),
     Call(String, Vec<usize>),
+    CallRet(String, Vec<usize>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -99,15 +99,15 @@ impl BrilBuilder {
 
     fn add_expr(
         &mut self,
-        args: &[String],
+        args: &[Argument],
         expr: &Expr,
-        cache: &mut HashMap<Expr, String>,
-    ) -> String {
+        cache: &mut HashMap<Expr, Argument>,
+    ) -> Argument {
         if let Some(var) = cache.get(expr) {
             var.clone()
         } else {
             // FIXME: use macro
-            let var: String = match expr {
+            let var: Argument = match expr {
                 Expr::Arg(n) => return args[*n].clone(),
                 Expr::ConstInt(i) => {
                     let dest = self.new_var();
@@ -117,7 +117,10 @@ impl BrilBuilder {
                         value: Literal::Int(*i),
                         const_type: Type::Int,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Int,
+                    }
                 }
                 Expr::ConstBool(b) => {
                     let dest = self.new_var();
@@ -127,7 +130,10 @@ impl BrilBuilder {
                         value: Literal::Bool(*b),
                         const_type: Type::Bool,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
                 Expr::Add(lhs, rhs) => {
                     let dest = self.new_var();
@@ -135,14 +141,18 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Add,
                         op_type: Type::Int,
                     }));
-                    dest
+
+                    Argument {
+                        name: dest,
+                        arg_type: lhs.arg_type,
+                    }
                 }
                 Expr::Sub(lhs, rhs) => {
                     let dest = self.new_var();
@@ -150,14 +160,18 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Sub,
                         op_type: Type::Int,
                     }));
-                    dest
+
+                    Argument {
+                        name: dest,
+                        arg_type: lhs.arg_type,
+                    }
                 }
                 Expr::Mul(lhs, rhs) => {
                     let dest = self.new_var();
@@ -165,14 +179,17 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Mul,
                         op_type: Type::Int,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: lhs.arg_type,
+                    }
                 }
                 Expr::Div(lhs, rhs) => {
                     let dest = self.new_var();
@@ -180,14 +197,17 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Div,
                         op_type: Type::Int,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: lhs.arg_type,
+                    }
                 }
                 Expr::Eq(lhs, rhs) => {
                     let dest = self.new_var();
@@ -195,14 +215,17 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Eq,
                         op_type: Type::Bool,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
                 Expr::Lt(lhs, rhs) => {
                     let dest = self.new_var();
@@ -210,14 +233,17 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Lt,
                         op_type: Type::Bool,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
                 Expr::Gt(lhs, rhs) => {
                     let dest = self.new_var();
@@ -225,14 +251,17 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Gt,
                         op_type: Type::Bool,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
                 Expr::Le(lhs, rhs) => {
                     let dest = self.new_var();
@@ -240,14 +269,17 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Le,
                         op_type: Type::Bool,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
                 Expr::Ge(lhs, rhs) => {
                     let dest = self.new_var();
@@ -255,28 +287,34 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Ge,
                         op_type: Type::Bool,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
                 Expr::Not(arg) => {
                     let dest = self.new_var();
                     let arg = self.add_expr(args, &arg, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![arg],
+                        args: vec![arg.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Not,
                         op_type: Type::Bool,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
                 Expr::And(lhs, rhs) => {
                     let dest = self.new_var();
@@ -284,14 +322,18 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::And,
                         op_type: Type::Bool,
                     }));
-                    dest
+
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
                 Expr::Or(lhs, rhs) => {
                     let dest = self.new_var();
@@ -299,14 +341,17 @@ impl BrilBuilder {
                     let rhs = self.add_expr(args, &rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs, rhs],
+                        args: vec![lhs.name, rhs.name],
                         dest: dest.clone(),
                         funcs: vec![],
                         labels: vec![],
                         op: ValueOps::Or,
                         op_type: Type::Bool,
                     }));
-                    dest
+                    Argument {
+                        name: dest,
+                        arg_type: Type::Bool,
+                    }
                 }
             };
 
@@ -315,53 +360,74 @@ impl BrilBuilder {
         }
     }
 
-    fn add_state_expr(&mut self, args: &[String], state_expr: StateExpr) -> String {
+    fn add_state_expr(&mut self, args: &[Argument], state_expr: StateExpr) -> Option<Argument> {
         match state_expr {
-            StateExpr::Arg(n) => args[n].clone(),
+            StateExpr::Arg(n) => Some(args[n].clone()),
             StateExpr::Print(n) => {
-                let var = self.new_var();
                 self.add_code(Code::Instruction(Instruction::Effect {
                     op: EffectOps::Print,
-                    args: vec![args[n].clone()],
+                    args: vec![args[n].name.clone()],
                     funcs: vec![],
                     labels: vec![],
                 }));
-                var
+                None
             }
             StateExpr::Return(n) => {
-                let var = self.new_var();
                 self.add_code(Code::Instruction(Instruction::Effect {
                     op: EffectOps::Return,
-                    args: n.into_iter().map(|n| args[n].clone()).collect(),
+                    args: n.into_iter().map(|n| args[n].name.clone()).collect(),
                     funcs: vec![],
                     labels: vec![],
                 }));
-                var
+                None
             }
             StateExpr::Call(func, call_args) => {
-                let var = self.new_var();
                 self.add_code(Code::Instruction(Instruction::Effect {
                     op: EffectOps::Call,
-                    args: call_args.into_iter().map(|n| args[n].clone()).collect(),
+                    args: call_args
+                        .into_iter()
+                        .map(|n| args[n].name.clone())
+                        .collect(),
                     funcs: vec![func],
                     labels: vec![],
                 }));
-                var
+
+                None
+            }
+            StateExpr::CallRet(func, call_args) => {
+                let var = self.new_var();
+                self.add_code(Code::Instruction(Instruction::Value {
+                    args: call_args
+                        .into_iter()
+                        .map(|n| args[n].name.clone())
+                        .collect(),
+                    dest: var.clone(),
+                    funcs: vec![func],
+                    labels: vec![],
+                    op: ValueOps::Call,
+                    op_type: Type::Int,
+                }));
+
+                // FIXME: detect correct return type
+                Some(Argument {
+                    name: var,
+                    arg_type: Type::Int,
+                })
             }
         }
     }
 
-    fn var_map(&mut self, from: &[String], to: &[String]) {
+    fn var_map(&mut self, from: &[Argument], to: &[Argument]) {
         for (f, t) in from.iter().zip(to.iter()) {
             // TODO: add phi node
             self.add_code(Code::Instruction(Instruction::Value {
-                args: vec![f.clone()],
-                dest: t.clone(),
+                args: vec![f.name.clone()],
+                dest: t.name.clone(),
                 funcs: vec![],
                 labels: vec![],
                 op: ValueOps::Id,
                 // FIXME
-                op_type: Type::Int,
+                op_type: t.arg_type.clone(),
             }));
         }
     }
@@ -382,7 +448,7 @@ impl Rvsdg {
         to_rvsdg(demand, &args, &[])
     }
 
-    pub fn to_bril(&self, args: &[String]) -> Vec<Code> {
+    pub fn to_bril(&self, args: &[Argument]) -> Vec<Code> {
         let mut builder = BrilBuilder {
             codes: Vec::new(),
             var_counter: 0,
@@ -398,10 +464,10 @@ impl Rvsdg {
 
     fn build_bril(
         &self,
-        args: &[String],
+        args: &[Argument],
         builder: &mut BrilBuilder,
-        cache: &mut HashMap<Expr, String>,
-    ) -> Vec<String> {
+        cache: &mut HashMap<Expr, Argument>,
+    ) -> Vec<Argument> {
         match self {
             Rvsdg::Simple { outputs } => outputs
                 .iter()
@@ -409,7 +475,7 @@ impl Rvsdg {
                 .collect(),
             Rvsdg::StateFul { outputs } => outputs
                 .iter()
-                .map(|v| builder.add_state_expr(args, v.clone()))
+                .flat_map(|v| builder.add_state_expr(args, v.clone()))
                 .collect(),
             Rvsdg::Linear(v) => {
                 let mut args = args.to_vec();
@@ -430,7 +496,7 @@ impl Rvsdg {
 
                 builder.add_code(Code::Instruction(Instruction::Effect {
                     op: EffectOps::Branch,
-                    args: vec![cond_var],
+                    args: vec![cond_var.name],
                     funcs: vec![],
                     labels: vec![then_label.clone(), else_label.clone()],
                 }));
@@ -472,7 +538,7 @@ impl Rvsdg {
                 let else0 = builder.new_label();
 
                 builder.add_code(Code::Instruction(Instruction::Effect {
-                    args: vec![is0],
+                    args: vec![is0.name],
                     funcs: vec![],
                     labels: vec![then0.clone(), else0.clone()],
                     op: EffectOps::Branch,
@@ -500,7 +566,7 @@ impl Rvsdg {
                     );
 
                     builder.add_code(Code::Instruction(Instruction::Effect {
-                        args: vec![is_i],
+                        args: vec![is_i.name],
                         funcs: vec![],
                         labels: vec![then_label.clone(), new_else_label.clone()],
                         op: EffectOps::Branch,
@@ -543,7 +609,7 @@ impl Rvsdg {
                 let outs = body.build_bril(args, builder, &mut cache.clone());
                 builder.var_map(&outs, &args);
                 builder.add_code(Code::Instruction(Instruction::Effect {
-                    args: vec![outs[*cond_index].clone()],
+                    args: vec![outs[*cond_index].name.clone()],
                     funcs: vec![],
                     labels: vec![loop_head.clone(), loop_end.clone()],
                     op: EffectOps::Branch,
@@ -612,7 +678,7 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
                 op,
                 ..
             } if op == &ValueOps::Call => {
-                let expr = StateExpr::Call(
+                let expr = StateExpr::CallRet(
                     funcs[0].clone(),
                     arguments.iter().map(|v| args[v]).collect(),
                 );
@@ -888,13 +954,7 @@ mod test {
                     &[],
                 );
 
-                let codes = rvsdg.to_bril(
-                    &function
-                        .args
-                        .iter()
-                        .map(|v| v.name.clone())
-                        .collect::<Vec<_>>(),
-                );
+                let codes = rvsdg.to_bril(&function.args);
 
                 dbg!(&rvsdg);
 
