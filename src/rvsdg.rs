@@ -92,7 +92,7 @@ impl BrilBuilder {
     }
 
     fn new_label(&mut self) -> String {
-        let label = format!("l{}", self.label_counter);
+        let label = format!("L{}", self.label_counter);
         self.label_counter += 1;
         label
     }
