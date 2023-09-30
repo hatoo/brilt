@@ -807,13 +807,13 @@ fn to_rvsdg(
                 .collect::<Vec<_>>();
 
             match cond_var.as_str() {
-                StructureAnalysis::VAR_P | StructureAnalysis::VAR_Q => Rvsdg::BranchIf {
-                    cond_index: args.get(&cond_var).copied().unwrap(),
-                    branches: [Box::new(branches[0].clone()), Box::new(branches[1].clone())],
-                },
-                _ => Rvsdg::BranchSwitch {
+                StructureAnalysis::VAR_P | StructureAnalysis::VAR_Q => Rvsdg::BranchSwitch {
                     cond_index: args.get(&cond_var).copied().unwrap(),
                     branches,
+                },
+                _ => Rvsdg::BranchIf {
+                    cond_index: args.get(&cond_var).copied().unwrap(),
+                    branches: [Box::new(branches[0].clone()), Box::new(branches[1].clone())],
                 },
             }
         }
