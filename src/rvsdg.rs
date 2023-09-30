@@ -93,8 +93,8 @@ impl BrilBuilder {
         var
     }
 
-    fn new_label(&mut self) -> String {
-        let label = format!("L{}", self.label_counter);
+    fn new_label(&mut self, info: Option<&str>) -> String {
+        let label = format!("L{}{}", info.unwrap_or_default(), self.label_counter);
         self.label_counter += 1;
         label
     }
@@ -520,9 +520,9 @@ impl Rvsdg {
                 cond_index,
                 branches,
             } => {
-                let end_label = builder.new_label();
-                let then_label = builder.new_label();
-                let else_label = builder.new_label();
+                let end_label = builder.new_label(Some("branch_end"));
+                let then_label = builder.new_label(Some("then"));
+                let else_label = builder.new_label(Some("else"));
 
                 let cond_var = args[*cond_index].clone();
 
@@ -556,7 +556,7 @@ impl Rvsdg {
                 cond_index,
                 branches,
             } => {
-                let end_label = builder.new_label();
+                let end_label = builder.new_label(Some("branch_end"));
 
                 let is0 = builder.add_expr(
                     args,
@@ -566,8 +566,8 @@ impl Rvsdg {
                     ),
                     &mut HashMap::new(),
                 );
-                let then0 = builder.new_label();
-                let else0 = builder.new_label();
+                let then0 = builder.new_label(Some("then"));
+                let else0 = builder.new_label(Some("else"));
 
                 builder.add_code(Code::Instruction(Instruction::Effect {
                     args: vec![is0.name],
@@ -585,8 +585,8 @@ impl Rvsdg {
                     builder.add_code(Code::Label {
                         label: else_label.clone(),
                     });
-                    let then_label = builder.new_label();
-                    let new_else_label = builder.new_label();
+                    let then_label = builder.new_label(Some("then"));
+                    let new_else_label = builder.new_label(Some("else"));
 
                     let is_i = builder.add_expr(
                         args,
@@ -633,7 +633,7 @@ impl Rvsdg {
                 cond_index,
                 outputs,
             } => {
-                let loop_head = builder.new_label();
+                let loop_head = builder.new_label(Some("loop_head"));
 
                 builder.add_code(Code::Label {
                     label: loop_head.clone(),
@@ -641,7 +641,7 @@ impl Rvsdg {
 
                 let outs = body.build_bril(args, builder);
                 builder.var_map(&outs, args);
-                let loop_end = builder.new_label();
+                let loop_end = builder.new_label(Some("loop_end"));
                 builder.add_code(Code::Instruction(Instruction::Effect {
                     args: vec![outs[*cond_index].name.clone()],
                     funcs: vec![],
