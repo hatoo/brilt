@@ -137,8 +137,8 @@ impl BrilBuilder {
                 }
                 Expr::Add(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -156,8 +156,8 @@ impl BrilBuilder {
                 }
                 Expr::Sub(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -175,8 +175,8 @@ impl BrilBuilder {
                 }
                 Expr::Mul(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -193,8 +193,8 @@ impl BrilBuilder {
                 }
                 Expr::Div(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -211,8 +211,8 @@ impl BrilBuilder {
                 }
                 Expr::Eq(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -229,8 +229,8 @@ impl BrilBuilder {
                 }
                 Expr::Lt(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -247,8 +247,8 @@ impl BrilBuilder {
                 }
                 Expr::Gt(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -265,8 +265,8 @@ impl BrilBuilder {
                 }
                 Expr::Le(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -283,8 +283,8 @@ impl BrilBuilder {
                 }
                 Expr::Ge(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -301,7 +301,7 @@ impl BrilBuilder {
                 }
                 Expr::Not(arg) => {
                     let dest = self.new_var();
-                    let arg = self.add_expr(args, &arg, cache);
+                    let arg = self.add_expr(args, arg, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![arg.name],
@@ -318,8 +318,8 @@ impl BrilBuilder {
                 }
                 Expr::And(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -337,8 +337,8 @@ impl BrilBuilder {
                 }
                 Expr::Or(lhs, rhs) => {
                     let dest = self.new_var();
-                    let lhs = self.add_expr(args, &lhs, cache);
-                    let rhs = self.add_expr(args, &rhs, cache);
+                    let lhs = self.add_expr(args, lhs, cache);
+                    let rhs = self.add_expr(args, rhs, cache);
 
                     self.add_code(Code::Instruction(Instruction::Value {
                         args: vec![lhs.name, rhs.name],
@@ -607,7 +607,7 @@ impl Rvsdg {
                 });
 
                 let outs = body.build_bril(args, builder, &mut cache.clone());
-                builder.var_map(&outs, &args);
+                builder.var_map(&outs, args);
                 builder.add_code(Code::Instruction(Instruction::Effect {
                     args: vec![outs[*cond_index].name.clone()],
                     funcs: vec![],
