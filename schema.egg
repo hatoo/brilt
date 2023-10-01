@@ -33,9 +33,13 @@
   (Vec Expr)
 )
 
+(let vec-empty-expr (vec-pop (vec-of (Arg 0))))
+
 (sort StateExprVec
   (Vec StateExpr)
 )
+
+(let vec-empty-state-expr (vec-pop (vec-of (SArg 0))))
 
 (datatype OptionS
   (SomeS StateExpr)
@@ -44,7 +48,7 @@
 
 (datatype Node
   (Simple ExprVec)
-  (StateFul ExprVec OptionS)
+  (StateFul StateExprVec OptionS)
   (BranchIf i64 Node Node)
 )
 
@@ -84,7 +88,7 @@
 
 ; cond is a constant. So egglog will optimize branches.
 (let expr
-  (Linear (Cons (Simple (vec-of (ConstInt 47) (ConstBool (True)))) (Cons (BranchIf 1 (Simple (vec-of (Arg 0) (ConstInt 5))) (Simple (vec-of (ConstInt 2) (ConstInt 10)))) (Cons (Linear (Cons (Simple (vec-of (Sub (Arg 0) (Arg 1)))) (Cons (StateFul (vec-empty) (SomeS (Print 0))) (Cons (StateFul (vec-empty) (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
+  (Linear (Cons (Simple (vec-of (ConstBool (True)) (ConstInt 47))) (Cons (BranchIf 0 (Simple (vec-of (Arg 1) (ConstInt 5))) (Simple (vec-of (ConstInt 2) (ConstInt 10)))) (Cons (Linear (Cons (Simple (vec-of (Sub (Arg 0) (Arg 1)))) (Cons (StateFul vec-empty-state-expr (SomeS (Print 0))) (Cons (StateFul vec-empty-state-expr (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
 )
 
 (run 100)
