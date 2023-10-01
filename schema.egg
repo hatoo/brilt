@@ -59,28 +59,87 @@
 
 ; Start Rules
 
-(function CBool (Node i64) Bool)
+(datatype Value
+  (Int i64)
+  (Boolean Bool)
+)
+
+(function ConstValue (Node i64) Value)
 
 (rewrite
   (Cons node (Cons (BranchIf i then else) rest))
   (Cons node (Cons then rest))
-  :when ((= (CBool node i) (True)))
+  :when ((= (ConstValue node i) (Boolean (True))))
 )
 
 (rule
   ((Cons node (Cons (BranchIf i then else) rest)))
-  ((CBool node i))
+  ((ConstValue node i))
 )
 
 (rewrite
-  (CBool (Simple (ConsE i (ConstBool b) rest)) i)
-  b
+  (ConstValue (Simple (ConsE i (ConstBool b) rest)) i)
+  (Boolean b)
 )
 
 (rewrite
-  (CBool (Simple (ConsE i _expr rest)) j)
-  (CBool (Simple rest) j)
+  (ConstValue (Simple (ConsE i (ConstInt x) rest)) i)
+  (Int x)
+)
+
+(rewrite
+  (ConstValue (Simple (ConsE i _expr rest)) j)
+  (ConstValue (Simple rest) j)
   :when ((< i j))
+)
+
+(relation Foreach (Node ListE))
+
+(rule
+  ((Foreach node (ConsE x (Arg i) rest)))
+  (
+    (ConstValue node i)
+    (Foreach node rest)
+  )
+)
+
+(rule
+  ((Cons node (Cons (Simple list) rest)))
+  ((Foreach node list))
+)
+
+(function rec_list (Node ListE) ListE)
+
+(function value-to-expr (Value) Expr)
+
+(rewrite
+  (value-to-expr (Int x))
+  (ConstInt x)
+)
+
+(rewrite
+  (value-to-expr (Boolean b))
+  (ConstBool b)
+)
+
+(rewrite
+  (rec_list node (ConsE i (Arg x) rest))
+  (ConsE i (value-to-expr (ConstValue node x)) (rec_list node rest))
+)
+
+(rewrite
+  (rec_list node (ConsE i expr rest))
+  (ConsE i expr (rec_list node rest))
+)
+
+(rewrite
+  (rec_list node (NilE))
+  (NilE)
+)
+
+(rewrite
+  (Cons node (Cons (Simple list) rest))
+  (Cons node (Cons (Simple (rec_list node list)) rest))
 )
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
@@ -107,7 +166,8 @@
   (Linear (Cons (Simple (ConsE 0 (ConstInt 47) (ConsE 1 (ConstBool (True)) (NilE)))) (Cons (BranchIf 1 (Simple (ConsE 0 (Arg 0) (ConsE 1 (ConstInt 5) (NilE)))) (Simple (ConsE 0 (ConstInt 2) (ConsE 1 (ConstInt 10) (NilE))))) (Cons (Linear (Cons (Simple (ConsE 0 (Sub (Arg 0) (Arg 1)) (NilE))) (Cons (StateFul (NilS) (SomeS (Print 0))) (Cons (StateFul (NilS) (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
 )
 
+
 (run 100)
 
-(print-table CBool)
+(print-table ConstValue)
 (query-extract expr)
