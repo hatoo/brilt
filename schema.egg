@@ -67,6 +67,33 @@
   :when ((= (vec-get outs i) (ConstBool (True))))
 )
 
+; Test const propagation for int
+(function f (Node ExprVec i64) Expr)
+
+(rule
+  ((f node v i) (< (+ i 1) (vec-length v)))
+  ((f node v (+ i 1)))
+)
+
+(rule
+  ((f (Simple p) v i) (= (Arg j) (vec-get v i)) (= (ConstInt x) (vec-get p j)))
+  ((union (f (Simple p) v i) (ConstInt x)))
+)
+
+(rule
+  ((Cons pred (Cons (Simple v) rest)) (!= (vec-length v) 0))
+  ((f pred v 0))
+)
+
+(rule
+  ((= (ConstInt x) (f node v i)) (Cons node (Cons (Simple v) rest)))
+  ((union
+      (Cons node (Cons (Simple v) rest))
+      (Cons node (Cons (Simple (vec-set v i (f node v i))) rest))
+    )
+  )
+)
+
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
 ;  a: int = const 47;
