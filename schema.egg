@@ -80,7 +80,7 @@
 (rewrite
   (CBool (Simple (ConsE i _expr rest)) j)
   (CBool (Simple rest) j)
-  :when (< i j)
+  :when ((< i j))
 )
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
@@ -109,5 +109,5 @@
 
 (run 100)
 
-(print-size Cons)
+(print-table CBool)
 (query-extract expr)
