@@ -27,6 +27,7 @@ fn to_list<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
 }
 
 fn to_listi<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
+    /*
     fn to_list_impl<T: Display>(v: &[T], i: usize, cons: &str, nil: &str) -> String {
         if v.is_empty() {
             format!("({})", nil)
@@ -42,12 +43,25 @@ fn to_listi<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
     }
 
     to_list_impl(v, 0, cons, nil)
+    */
+
+    if v.is_empty() {
+        format!("(vec-empty)")
+    } else {
+        format!(
+            "(vec-of {} )",
+            v.iter()
+                .map(|d| d.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    }
 }
 
 impl Display for StateExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Arg(n) => write!(f, "(SArg {})", n),
+            Self::Arg(n) => write!(f, "(Arg {})", n),
             Self::Print(i) => write!(f, "(Print {})", i),
             Self::Return(r) => {
                 if let Some(r) = r {
