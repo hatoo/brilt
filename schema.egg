@@ -119,7 +119,7 @@
 ;  print d;
 ;}
 
-; cond is static. So egglog will optimize a branch
+; cond is a constant. So egglog will optimize branches.
 (let expr
   (Linear
     (Cons (Simple
