@@ -29,20 +29,17 @@
   (Print i64)
 )
 
-(datatype ExprList
-  (ConsExpr i64 Expr ExprList)
-  (NilExpr)
+(sort ExprVec
+  (Vec Expr)
 )
 
-(datatype StateExprList
-  (ConsStateExpr i64 StateExpr StateExprList)
-  (NilStateExpr)
+(let vec-empty-expr (vec-pop (vec-of (Arg 0))))
+
+(sort StateExprVec
+  (Vec StateExpr)
 )
 
-(datatype OptionE
-  (SomeE Expr)
-  (NoneE)
-)
+(let vec-empty-state-expr (vec-pop (vec-of (SArg 0))))
 
 (datatype OptionS
   (SomeS StateExpr)
@@ -50,8 +47,8 @@
 )
 
 (datatype Node
-  (Simple ExprList)
-  (StateFul StateExprList OptionS)
+  (Simple ExprVec)
+  (StateFul StateExprVec OptionS)
   (BranchIf i64 Node Node)
 )
 
@@ -64,105 +61,10 @@
 
 ; Start Rules
 
-(rewrite (Add (ConstInt x) (ConstInt y)) (ConstInt (+ x y)))
-(rewrite (Sub (ConstInt x) (ConstInt y)) (ConstInt (- x y)))
-
-
-(function ConstBoolFold (Node i64) Bool)
-(function ConstExprBool (ExprList i64) Bool)
-
 (rewrite
-  (ConstExprBool (ConsExpr i (ConstBool b) rest) i)
-  b
-)
-
-(rewrite
-  (ConstExprBool (ConsExpr i e1 (ConsExpr j e2 rest)) k)
-  (ConstExprBool (ConsExpr j e2 rest) k)
-)
-
-(birewrite
-  (ConstExprBool expr i)
-  (ConstBoolFold (Simple expr) i)
-)
-
-(rule
-  ((Cons node (Cons (BranchIf i then else) rest)))
-  ((ConstBoolFold node i))
-)
-
-(rule
-  ((Cons pred (Cons succ rest)) (= succ (BranchIf i then _)) (= (ConstBoolFold pred i) (True)))
-  ((ConstBoolFold pred i) (union (Cons pred (Cons succ rest)) (Cons pred (Cons then rest))))
-)
-
-; Const fold for int
-; FIXME ugly
-
-(datatype Int
-  (I i64)
-)
-
-(function ConstExprInt (ExprList i64) Int)
-(function ConstIntFold (Node Expr) Int)
-
-(rewrite
-  (ConstExprInt (ConsExpr i (ConstInt x) rest) i)
-  (I x)
-)
-
-(rewrite
-  (ConstExprInt (ConsExpr i e1 (ConsExpr j e2 rest)) k)
-  (ConstExprInt (ConsExpr j e2 rest) k)
-)
-
-(rewrite
-  (ConstIntFold (Simple list) (Arg i))
-  (ConstExprInt list i)
-)
-
-(rewrite
-  (ConstIntFold node (ConstInt i))
-  (I i)
-)
-
-(function traverse (Node ExprList) ExprList)
-
-(rule
-  ((Cons node (Cons (Simple list) rest)))
-  ((traverse node list))
-)
-
-(rule
-  ((Cons node (Cons (Simple list) rest)))
-  (
-    (union
-      (Cons node (Cons (Simple list) rest))
-      (Cons node (Cons (Simple (traverse node list)) rest))
-    )
-  )
-)
-
-(rule
-  ((traverse node (ConsExpr i head tail)))
-  ((ConstIntFold node head))
-)
-
-(function getExpr (Int) Expr)
-
-(rewrite
-  (getExpr (I x))
-  (ConstInt x)
-)
-
-(rewrite
-  (traverse node (ConsExpr i head tail))
-  (traverse node (ConsExpr i (getExpr (ConstIntFold node head)) (traverse node tail)))
-)
-
-(rewrite
-  (traverse node list)
-  list
+  (Cons (Simple outs) (Cons (BranchIf i then else) rest))
+  (Cons (Simple outs) (Cons then rest))
+  :when ((= (vec-get outs i) (ConstBool (True))))
 )
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
@@ -186,24 +88,9 @@
 
 ; cond is a constant. So egglog will optimize branches.
 (let expr
-  (Linear
-    (Cons (Simple
-        (ConsExpr 0 (ConstInt 47)
-          (ConsExpr 1 (ConstBool (True))
-            (NilExpr))))
-      (Cons (BranchIf 1 (Simple (ConsExpr 0 (Arg 0) (ConsExpr 1 (ConstInt 5) (NilExpr)))) (Simple (ConsExpr 0 (ConstInt 2) (ConsExpr 1 (ConstInt 10) (NilExpr))))) (Cons (Linear (Cons (Simple (ConsExpr 0 (Sub (Arg 0) (Arg 1)) (NilExpr))) (Cons (StateFul (NilStateExpr) (SomeS (Print 0))) (Cons (StateFul (NilStateExpr) (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
+  (Linear (Cons (Simple (vec-of (ConstBool (True)) (ConstInt 47))) (Cons (BranchIf 0 (Simple (vec-of (Arg 1) (ConstInt 5))) (Simple (vec-of (ConstInt 2) (ConstInt 10)))) (Cons (Linear (Cons (Simple (vec-of (Sub (Arg 0) (Arg 1)))) (Cons (StateFul vec-empty-state-expr (SomeS (Print 0))) (Cons (StateFul vec-empty-state-expr (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
 )
 
-
-
 (run 100)
-
-(print-table ConstExprBool)
-(print-table ConstBoolFold)
-
-(print-table ConstExprInt)
-(print-table ConstIntFold)
-(print-table traverse)
-(print-table getExpr)
 
 (query-extract expr)

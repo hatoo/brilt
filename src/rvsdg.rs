@@ -26,22 +26,18 @@ fn to_list<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
     }
 }
 
-fn to_listi<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
-    fn to_list_impl<T: Display>(v: &[T], i: usize, cons: &str, nil: &str) -> String {
-        if v.is_empty() {
-            format!("({})", nil)
-        } else {
-            format!(
-                "({} {} {} {})",
-                cons,
-                i,
-                v[0],
-                to_list_impl(&v[1..], i + 1, cons, nil)
-            )
-        }
+fn to_vec<T: Display>(v: &[T], vec_empty: &str) -> String {
+    if v.is_empty() {
+        vec_empty.to_string()
+    } else {
+        format!(
+            "(vec-of {})",
+            v.iter()
+                .map(|d| d.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
     }
-
-    to_list_impl(v, 0, cons, nil)
 }
 
 impl Display for StateExpr {
@@ -145,7 +141,7 @@ impl Display for Rvsdg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Rvsdg::Simple { outputs } => {
-                write!(f, "(Simple {})", to_listi(outputs, "ConsExpr", "NilExpr"))
+                write!(f, "(Simple {})", to_vec(outputs, "vec-empty-expr"))
             }
             Rvsdg::StateFul {
                 outputs,
@@ -155,14 +151,14 @@ impl Display for Rvsdg {
                     write!(
                         f,
                         "(StateFul {} (SomeS {}))",
-                        to_listi(outputs, "ConsStateExpr", "NilStateExpr"),
+                        to_vec(outputs, "vec-empty-state-expr"),
                         se
                     )
                 } else {
                     write!(
                         f,
                         "(StateFul {} (NoneS))",
-                        to_listi(outputs, "ConsStateExpr", "NilStateExpr"),
+                        to_vec(outputs, "vec-empty-state-expr"),
                     )
                 }
             }
@@ -179,16 +175,8 @@ impl Display for Rvsdg {
                     cond_index, branches[0], branches[1]
                 )
             }
-            Rvsdg::BranchSwitch {
-                cond_index,
-                branches,
-            } => {
-                write!(
-                    f,
-                    "(BranchSwitch {} {})",
-                    cond_index,
-                    to_listi(branches, "Cons", "Nil")
-                )
+            Rvsdg::BranchSwitch { .. } => {
+                todo!()
             }
             Rvsdg::Loop {
                 body,
