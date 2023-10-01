@@ -80,12 +80,7 @@
   (ConstExprBool (ConsExpr j e2 rest) k)
 )
 
-(rewrite
-  (ConstBoolFold (Simple expr) i)
-  (ConstExprBool expr i)
-)
-
-(rewrite
+(birewrite
   (ConstExprBool expr i)
   (ConstBoolFold (Simple expr) i)
 )
