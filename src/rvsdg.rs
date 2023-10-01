@@ -58,7 +58,7 @@ pub enum Rvsdg {
     // cond_var is a bool
     BranchIf {
         cond_index: usize,
-        // them else
+        // then else
         branches: [Box<Rvsdg>; 2],
     },
     // cond_var is an int
