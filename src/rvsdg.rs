@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
+    fmt::Display,
 };
 
 use bril_rs::{Argument, Code, ConstOps, EffectOps, Instruction, Literal, Type, ValueOps};
@@ -16,6 +17,31 @@ pub enum StateExpr {
     Print(usize),
     Return(Option<usize>),
     Call(String, Vec<usize>),
+}
+
+impl Display for StateExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Arg(n) => write!(f, "(SArg {})", n),
+            Self::Print(i) => write!(f, "(Print {})", i),
+            Self::Return(r) => {
+                if let Some(r) = r {
+                    write!(f, "(Return (Some {}))", r)
+                } else {
+                    write!(f, "(Return None)")
+                }
+            }
+            Self::Call(func, args) => write!(
+                f,
+                "(Call {} (vec-of {}))",
+                func,
+                args.iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -38,6 +64,28 @@ pub enum Expr {
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Arg(n) => write!(f, "(Arg {})", n),
+            Self::ConstInt(i) => write!(f, "(ConstInt {})", i),
+            Self::ConstBool(b) => write!(f, "(ConstBool {})", b),
+            Self::Add(l, r) => write!(f, "(Add {} {})", l, r),
+            Self::Sub(l, r) => write!(f, "(Sub {} {})", l, r),
+            Self::Mul(l, r) => write!(f, "(Mul {} {})", l, r),
+            Self::Div(l, r) => write!(f, "(Div {} {})", l, r),
+            Self::Eq(l, r) => write!(f, "(Eq {} {})", l, r),
+            Self::Lt(l, r) => write!(f, "(Lt {} {})", l, r),
+            Self::Gt(l, r) => write!(f, "(Gt {} {})", l, r),
+            Self::Le(l, r) => write!(f, "(Le {} {})", l, r),
+            Self::Ge(l, r) => write!(f, "(Ge {} {})", l, r),
+            Self::Not(e) => write!(f, "(Not {})", e),
+            Self::And(l, r) => write!(f, "(And {} {})", l, r),
+            Self::Or(l, r) => write!(f, "(Or {} {})", l, r),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +120,104 @@ pub enum Rvsdg {
         cond_index: usize,
         outputs: Vec<usize>,
     },
+}
+
+impl Display for Rvsdg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Rvsdg::Simple { outputs } => {
+                write!(
+                    f,
+                    "(Simple (vec-of {}))",
+                    outputs
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            }
+            Rvsdg::StateFul {
+                outputs,
+                side_effect,
+            } => {
+                if let Some(se) = side_effect {
+                    write!(
+                        f,
+                        "(StateFul (vec-of {}) (SomeS{}))",
+                        outputs
+                            .iter()
+                            .map(|v| v.to_string())
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        se
+                    )
+                } else {
+                    write!(
+                        f,
+                        "(StateFul (vec-of {}) NoneS)",
+                        outputs
+                            .iter()
+                            .map(|v| v.to_string())
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    )
+                }
+            }
+            Rvsdg::Linear(v) => {
+                fn to_list(v: &[Rvsdg]) -> String {
+                    if v.is_empty() {
+                        "Nil".to_string()
+                    } else {
+                        format!("(Cons {} {})", v[0], to_list(&v[1..]))
+                    }
+                }
+
+                write!(f, "(Linear {}", to_list(v))
+            }
+            Rvsdg::BranchIf {
+                cond_index,
+                branches,
+            } => {
+                write!(
+                    f,
+                    "(BranchIf {} {} {})",
+                    cond_index, branches[0], branches[1]
+                )
+            }
+            Rvsdg::BranchSwitch {
+                cond_index,
+                branches,
+            } => {
+                write!(
+                    f,
+                    "(BranchSwitch {} (vec-of {}))",
+                    cond_index,
+                    branches
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            }
+            Rvsdg::Loop {
+                body,
+                cond_index,
+                outputs,
+            } => {
+                write!(
+                    f,
+                    "(Loop {} {} (vec-of {}))",
+                    body,
+                    cond_index,
+                    outputs
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            }
+        }
+    }
 }
 
 struct BrilBuilder {
