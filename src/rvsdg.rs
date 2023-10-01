@@ -18,6 +18,31 @@ pub enum StateExpr {
     Return(Option<usize>),
     Call(String, Vec<usize>),
 }
+fn to_list<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
+    if v.is_empty() {
+        format!("({})", nil)
+    } else {
+        format!("({} {} {})", cons, v[0], to_list(&v[1..], cons, nil))
+    }
+}
+
+fn to_listi<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
+    fn to_list_impl<T: Display>(v: &[T], i: usize, cons: &str, nil: &str) -> String {
+        if v.is_empty() {
+            format!("({})", nil)
+        } else {
+            format!(
+                "({} {} {} {})",
+                cons,
+                i,
+                v[0],
+                to_list_impl(&v[1..], i + 1, cons, nil)
+            )
+        }
+    }
+
+    to_list_impl(v, 0, cons, nil)
+}
 
 impl Display for StateExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -26,20 +51,14 @@ impl Display for StateExpr {
             Self::Print(i) => write!(f, "(Print {})", i),
             Self::Return(r) => {
                 if let Some(r) = r {
-                    write!(f, "(Return (Some {}))", r)
+                    write!(f, "(Return (SomeI {}))", r)
                 } else {
-                    write!(f, "(Return None)")
+                    write!(f, "(Return (NoneI))")
                 }
             }
-            Self::Call(func, args) => write!(
-                f,
-                "(Call {} (vec-of {}))",
-                func,
-                args.iter()
-                    .map(|i| i.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            ),
+            Self::Call(func, args) => {
+                write!(f, "(Call {} {})", func, to_list(args, "ConsI", "NilI"))
+            }
         }
     }
 }
@@ -71,7 +90,7 @@ impl Display for Expr {
         match self {
             Self::Arg(n) => write!(f, "(Arg {})", n),
             Self::ConstInt(i) => write!(f, "(ConstInt {})", i),
-            Self::ConstBool(b) => write!(f, "(ConstBool {})", b),
+            Self::ConstBool(b) => write!(f, "(ConstBool ({}))", if *b { "True" } else { "False" }),
             Self::Add(l, r) => write!(f, "(Add {} {})", l, r),
             Self::Sub(l, r) => write!(f, "(Sub {} {})", l, r),
             Self::Mul(l, r) => write!(f, "(Mul {} {})", l, r),
@@ -126,15 +145,7 @@ impl Display for Rvsdg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Rvsdg::Simple { outputs } => {
-                write!(
-                    f,
-                    "(Simple (vec-of {}))",
-                    outputs
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                )
+                write!(f, "(Simple {})", to_listi(outputs, "ConsExpr", "NilExpr"))
             }
             Rvsdg::StateFul {
                 outputs,
@@ -143,36 +154,20 @@ impl Display for Rvsdg {
                 if let Some(se) = side_effect {
                     write!(
                         f,
-                        "(StateFul (vec-of {}) (SomeS{}))",
-                        outputs
-                            .iter()
-                            .map(|v| v.to_string())
-                            .collect::<Vec<_>>()
-                            .join(" "),
+                        "(StateFul {} (SomeS {}))",
+                        to_listi(outputs, "ConsStateExpr", "NilStateExpr"),
                         se
                     )
                 } else {
                     write!(
                         f,
-                        "(StateFul (vec-of {}) NoneS)",
-                        outputs
-                            .iter()
-                            .map(|v| v.to_string())
-                            .collect::<Vec<_>>()
-                            .join(" "),
+                        "(StateFul {} (NoneS))",
+                        to_listi(outputs, "ConsStateExpr", "NilStateExpr"),
                     )
                 }
             }
             Rvsdg::Linear(v) => {
-                fn to_list(v: &[Rvsdg]) -> String {
-                    if v.is_empty() {
-                        "Nil".to_string()
-                    } else {
-                        format!("(Cons {} {})", v[0], to_list(&v[1..]))
-                    }
-                }
-
-                write!(f, "(Linear {}", to_list(v))
+                write!(f, "(Linear {})", to_list(v, "Cons", "Nil"))
             }
             Rvsdg::BranchIf {
                 cond_index,
@@ -190,13 +185,9 @@ impl Display for Rvsdg {
             } => {
                 write!(
                     f,
-                    "(BranchSwitch {} (vec-of {}))",
+                    "(BranchSwitch {} {})",
                     cond_index,
-                    branches
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ")
+                    to_listi(branches, "Cons", "Nil")
                 )
             }
             Rvsdg::Loop {
@@ -206,14 +197,10 @@ impl Display for Rvsdg {
             } => {
                 write!(
                     f,
-                    "(Loop {} {} (vec-of {}))",
+                    "(Loop {} {} {})",
                     body,
                     cond_index,
-                    outputs
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ")
+                    to_list(outputs, "Cons", "Nil")
                 )
             }
         }
@@ -1091,7 +1078,7 @@ mod test {
                     &[],
                 );
 
-                dbg!(rvsdg);
+                println!("{}", rvsdg);
             }
         }
     }

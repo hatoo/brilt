@@ -1,0 +1,137 @@
+(datatype Bool
+  (True)
+  (False)
+)
+
+(datatype OptionI
+  (SomeI i64)
+  (NoneI)
+)
+
+(datatype Expr
+  (ConstInt i64)
+  (ConstBool Bool)
+  (Arg i64)
+  (Add Expr Expr)
+  (Sub Expr Expr)
+  (Gt Expr Expr)
+)
+
+(datatype IList
+  (ConsI i64)
+  (NilI)
+)
+
+(datatype StateExpr
+  (SArg i64)
+  (Call IList)
+  (Return OptionI)
+  (Print i64)
+)
+
+(datatype ExprList
+  (ConsExpr i64 Expr ExprList)
+  (NilExpr)
+)
+
+(datatype StateExprList
+  (ConsStateExpr i64 StateExpr StateExprList)
+  (NilStateExpr)
+)
+
+(datatype OptionE
+  (SomeE Expr)
+  (NoneE)
+)
+
+(datatype OptionS
+  (SomeS StateExpr)
+  (NoneS)
+)
+
+(datatype Node
+  (Simple ExprList)
+  (StateFul StateExprList OptionS)
+  (BranchIf i64 Node Node)
+)
+
+(datatype List
+  (Cons Node List)
+  (Nil)
+)
+
+(function Linear (List) Node)
+
+; Start Rules
+
+(rewrite (Add (ConstInt x) (ConstInt y)) (ConstInt (+ x y)))
+
+
+(function ConstBoolFold (Node i64) Bool)
+(function ConstExprBool (ExprList i64) Bool)
+
+(rewrite
+  (ConstExprBool (ConsExpr i (ConstBool b) rest) i)
+  b
+)
+
+(rewrite
+  (ConstExprBool (ConsExpr i e1 (ConsExpr j e2 rest)) k)
+  (ConstExprBool (ConsExpr j e2 rest) k)
+)
+
+(rewrite
+  (ConstBoolFold (Simple expr) i)
+  (ConstExprBool expr i)
+)
+
+(rewrite
+  (ConstExprBool expr i)
+  (ConstBoolFold (Simple expr) i)
+)
+
+(rule
+  ((Cons node (Cons (BranchIf i then else) rest)))
+  ((ConstBoolFold node i))
+)
+
+(rule
+  ((Cons pred (Cons succ rest)) (= succ (BranchIf i then _)) (= (ConstBoolFold pred i) (True)))
+  ((ConstBoolFold pred i) (union (Cons pred (Cons succ rest)) (Cons pred (Cons then rest))))
+)
+
+; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
+;@main {
+;  a: int = const 47;
+;  b: int = const 42;
+;  cond: bool = const true;
+;  br cond .left .right;
+;.left:
+;  b: int = const 1;
+;  c: int = const 5;
+;  jmp .end;
+;.right:
+;  a: int = const 2;
+;  c: int = const 10;
+;  jmp .end;
+;.end:
+;  d: int = sub a c;
+;  print d;
+;}
+
+; cond is static. So egglog will optimize a branch
+(let expr
+  (Linear
+    (Cons (Simple
+        (ConsExpr 0 (ConstInt 47)
+          (ConsExpr 1 (ConstBool (True))
+            (NilExpr))))
+      (Cons (BranchIf 1 (Simple (ConsExpr 0 (Arg 0) (ConsExpr 1 (ConstInt 5) (NilExpr)))) (Simple (ConsExpr 0 (ConstInt 2) (ConsExpr 1 (ConstInt 10) (NilExpr))))) (Cons (Linear (Cons (Simple (ConsExpr 0 (Sub (Arg 0) (Arg 1)) (NilExpr))) (Cons (StateFul (NilStateExpr) (SomeS (Print 0))) (Cons (StateFul (NilStateExpr) (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
+)
+
+(run 100)
+
+(print-table ConstExprBool)
+(print-table ConstBoolFold)
+
+(query-extract expr)
