@@ -26,18 +26,22 @@ fn to_list<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
     }
 }
 
-fn to_vec<T: Display>(v: &[T], vec_empty: &str) -> String {
-    if v.is_empty() {
-        vec_empty.to_string()
-    } else {
-        format!(
-            "(vec-of {})",
-            v.iter()
-                .map(|d| d.to_string())
-                .collect::<Vec<_>>()
-                .join(" ")
-        )
+fn to_listi<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
+    fn to_list_impl<T: Display>(v: &[T], i: usize, cons: &str, nil: &str) -> String {
+        if v.is_empty() {
+            format!("({})", nil)
+        } else {
+            format!(
+                "({} {} {} {})",
+                cons,
+                i,
+                v[0],
+                to_list_impl(&v[1..], i + 1, cons, nil)
+            )
+        }
     }
+
+    to_list_impl(v, 0, cons, nil)
 }
 
 impl Display for StateExpr {
@@ -141,7 +145,7 @@ impl Display for Rvsdg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Rvsdg::Simple { outputs } => {
-                write!(f, "(Simple {})", to_vec(outputs, "vec-empty-expr"))
+                write!(f, "(Simple {})", to_listi(outputs, "ConsE", "NilE"))
             }
             Rvsdg::StateFul {
                 outputs,
@@ -151,14 +155,14 @@ impl Display for Rvsdg {
                     write!(
                         f,
                         "(StateFul {} (SomeS {}))",
-                        to_vec(outputs, "vec-empty-state-expr"),
+                        to_listi(outputs, "ConsS", "NilS"),
                         se
                     )
                 } else {
                     write!(
                         f,
                         "(StateFul {} (NoneS))",
-                        to_vec(outputs, "vec-empty-state-expr"),
+                        to_listi(outputs, "ConsS", "NilS"),
                     )
                 }
             }
@@ -178,18 +182,8 @@ impl Display for Rvsdg {
             Rvsdg::BranchSwitch { .. } => {
                 todo!()
             }
-            Rvsdg::Loop {
-                body,
-                cond_index,
-                outputs,
-            } => {
-                write!(
-                    f,
-                    "(Loop {} {} {})",
-                    body,
-                    cond_index,
-                    to_list(outputs, "Cons", "Nil")
-                )
+            Rvsdg::Loop { .. } => {
+                todo!()
             }
         }
     }

@@ -29,17 +29,15 @@
   (Print i64)
 )
 
-(sort ExprVec
-  (Vec Expr)
+(datatype ListE
+  (ConsE i64 Expr ListE)
+  (NilE)
 )
 
-(let vec-empty-expr (vec-pop (vec-of (Arg 0))))
-
-(sort StateExprVec
-  (Vec StateExpr)
+(datatype ListS
+  (ConsS i64 StateExpr ListS)
+  (NilS)
 )
-
-(let vec-empty-state-expr (vec-pop (vec-of (SArg 0))))
 
 (datatype OptionS
   (SomeS StateExpr)
@@ -47,8 +45,8 @@
 )
 
 (datatype Node
-  (Simple ExprVec)
-  (StateFul StateExprVec OptionS)
+  (Simple ListE)
+  (StateFul ListS OptionS)
   (BranchIf i64 Node Node)
 )
 
@@ -61,37 +59,28 @@
 
 ; Start Rules
 
+(function CBool (Node i64) Bool)
+
 (rewrite
-  (Cons (Simple outs) (Cons (BranchIf i then else) rest))
-  (Cons (Simple outs) (Cons then rest))
-  :when ((= (vec-get outs i) (ConstBool (True))))
-)
-
-; Test const propagation for int
-(function f (Node ExprVec i64) Expr)
-
-(rule
-  ((f node v i) (< (+ i 1) (vec-length v)))
-  ((f node v (+ i 1)))
+  (Cons node (Cons (BranchIf i then else) rest))
+  (Cons node (Cons then rest))
+  :when ((= (CBool node i) (True)))
 )
 
 (rule
-  ((f (Simple p) v i) (= (Arg j) (vec-get v i)) (= (ConstInt x) (vec-get p j)))
-  ((union (f (Simple p) v i) (ConstInt x)))
+  ((Cons node (Cons (BranchIf i then else) rest)))
+  ((CBool node i))
 )
 
-(rule
-  ((Cons pred (Cons (Simple v) rest)) (!= (vec-length v) 0))
-  ((f pred v 0))
+(rewrite
+  (CBool (Simple (ConsE i (ConstBool b) rest)) i)
+  b
 )
 
-(rule
-  ((= (ConstInt x) (f node v i)) (Cons node (Cons (Simple v) rest)))
-  ((union
-      (Cons node (Cons (Simple v) rest))
-      (Cons node (Cons (Simple (vec-set v i (f node v i))) rest))
-    )
-  )
+(rewrite
+  (CBool (Simple (ConsE i _expr rest)) j)
+  (CBool (Simple rest) j)
+  :when (< i j)
 )
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
@@ -115,9 +104,10 @@
 
 ; cond is a constant. So egglog will optimize branches.
 (let expr
-  (Linear (Cons (Simple (vec-of (ConstBool (True)) (ConstInt 47))) (Cons (BranchIf 0 (Simple (vec-of (Arg 1) (ConstInt 5))) (Simple (vec-of (ConstInt 2) (ConstInt 10)))) (Cons (Linear (Cons (Simple (vec-of (Sub (Arg 0) (Arg 1)))) (Cons (StateFul vec-empty-state-expr (SomeS (Print 0))) (Cons (StateFul vec-empty-state-expr (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
+  (Linear (Cons (Simple (ConsE 0 (ConstInt 47) (ConsE 1 (ConstBool (True)) (NilE)))) (Cons (BranchIf 1 (Simple (ConsE 0 (Arg 0) (ConsE 1 (ConstInt 5) (NilE)))) (Simple (ConsE 0 (ConstInt 2) (ConsE 1 (ConstInt 10) (NilE))))) (Cons (Linear (Cons (Simple (ConsE 0 (Sub (Arg 0) (Arg 1)) (NilE))) (Cons (StateFul (NilS) (SomeS (Print 0))) (Cons (StateFul (NilS) (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
 )
 
 (run 100)
 
+(print-size Cons)
 (query-extract expr)
