@@ -143,6 +143,7 @@ impl StructureAnalysis {
         }
     }
 
+    // Make EffectOps has its own block to Rvsdg
     pub(crate) fn split_effect(&mut self) {
         match self {
             StructureAnalysis::Block(codes) => {
