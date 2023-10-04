@@ -1,0 +1,20 @@
+@main {
+    a: int = const 3;
+    x:int = call @f a;
+}
+
+@f(x: int) : int {
+    print x;
+    zero: int = const 0;
+    one: int = const 1;
+
+    a: int = sub x one;
+    cond: bool = eq a zero;
+    br cond .then .else;
+
+.then:
+    ret zero;
+.else:
+    r: int = call @f a;
+    ret r;
+}
