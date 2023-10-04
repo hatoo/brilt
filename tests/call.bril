@@ -1,0 +1,12 @@
+@f(x: int) : int {
+    one: int = const 1;
+    y: int = add x one;
+    ret y;
+}
+
+@main {
+    x: int = const 1;
+    y: int = call @f x;
+    z: int = call @f y;
+    print z;
+}

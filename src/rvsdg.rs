@@ -1123,13 +1123,14 @@ mod test {
         for entry in glob("bril/examples/test/df/*.bril")
             .unwrap()
             .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+            .chain(glob("tests/*.bril").unwrap())
         {
             let path = entry.unwrap();
             let src = std::fs::read_to_string(&path).unwrap();
             let json_before = bril2json(src.as_str());
             let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
 
-            println!("checking {} ... ", path.to_str().unwrap());
+            print!("checking {} ... ", path.to_str().unwrap());
             for function in &mut program.functions {
                 let cfg = Cfg::new(&function.instrs);
 
@@ -1157,6 +1158,7 @@ mod test {
             let json_after = serde_json::to_string_pretty(&program).unwrap();
 
             assert_eq!(brili(&json_before).0, brili(&json_after).0);
+            println!("ok");
         }
     }
 }
