@@ -15,16 +15,17 @@
   (Add Expr Expr)
   (Sub Expr Expr)
   (Gt Expr Expr)
+  (Eq Expr Expr)
 )
 
-(datatype IList
-  (ConsI i64)
+(datatype ListI
+  (ConsI i64 ListI)
   (NilI)
 )
 
 (datatype StateExpr
   (SArg i64)
-  (Call IList)
+  (Call ListI)
   (Return OptionI)
   (Print i64)
 )
@@ -39,6 +40,11 @@
   (NilS)
 )
 
+(datatype ListII
+  (ConsII i64 i64 ListII)
+  (NilII)
+)
+
 (datatype OptionS
   (SomeS StateExpr)
   (NoneS)
@@ -48,6 +54,7 @@
   (Simple ListE)
   (StateFul ListS OptionS)
   (BranchIf i64 Node Node)
+  (Loop i64 Node ListII)
 )
 
 (datatype List
@@ -162,12 +169,12 @@
 ;}
 
 ; cond is a constant. So egglog will optimize branches.
-(let expr
-  (Linear (Cons (Simple (ConsE 0 (ConstInt 47) (ConsE 1 (ConstBool (True)) (NilE)))) (Cons (BranchIf 1 (Simple (ConsE 0 (Arg 0) (ConsE 1 (ConstInt 5) (NilE)))) (Simple (ConsE 0 (ConstInt 2) (ConsE 1 (ConstInt 10) (NilE))))) (Cons (Linear (Cons (Simple (ConsE 0 (Sub (Arg 0) (Arg 1)) (NilE))) (Cons (StateFul (NilS) (SomeS (Print 0))) (Cons (StateFul (NilS) (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
-)
+; (let expr
+; (Linear (Cons (Simple (ConsE 0 (ConstInt 47) (ConsE 1 (ConstBool (True)) (NilE)))) (Cons (BranchIf 1 (Simple (ConsE 0 (Arg 0) (ConsE 1 (ConstInt 5) (NilE)))) (Simple (ConsE 0 (ConstInt 2) (ConsE 1 (ConstInt 10) (NilE))))) (Cons (Linear (Cons (Simple (ConsE 0 (Sub (Arg 0) (Arg 1)) (NilE))) (Cons (StateFul (NilS) (SomeS (Print 0))) (Cons (StateFul (NilS) (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
+; )
 
 
-(run 100)
+; (run 100)
 
-(print-table ConstValue)
-(query-extract expr)
+; (print-table ConstValue)
+; (extract expr)

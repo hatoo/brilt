@@ -145,21 +145,21 @@ impl Display for Rvsdg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Rvsdg::Simple { outputs } => {
-                write!(f, "(Simple {})", to_listi(outputs, "ConsE", "NilE"))
+                writeln!(f, "(Simple {})", to_listi(outputs, "ConsE", "NilE"))
             }
             Rvsdg::StateFul {
                 outputs,
                 side_effect,
             } => {
                 if let Some(se) = side_effect {
-                    write!(
+                    writeln!(
                         f,
                         "(StateFul {} (SomeS {}))",
                         to_listi(outputs, "ConsS", "NilS"),
                         se
                     )
                 } else {
-                    write!(
+                    writeln!(
                         f,
                         "(StateFul {} (NoneS))",
                         to_listi(outputs, "ConsS", "NilS"),
@@ -167,13 +167,13 @@ impl Display for Rvsdg {
                 }
             }
             Rvsdg::Linear(v) => {
-                write!(f, "(Linear {})", to_list(v, "Cons", "Nil"))
+                writeln!(f, "(Linear {})", to_list(v, "Cons", "Nil"))
             }
             Rvsdg::BranchIf {
                 cond_index,
                 branches,
             } => {
-                write!(
+                writeln!(
                     f,
                     "(BranchIf {} {} {})",
                     cond_index, branches[0], branches[1]
@@ -182,9 +182,17 @@ impl Display for Rvsdg {
             Rvsdg::BranchSwitch { .. } => {
                 todo!()
             }
-            Rvsdg::Loop { .. } => {
-                todo!()
-            }
+            Rvsdg::Loop {
+                body,
+                cond_index,
+                outputs,
+            } => writeln!(
+                f,
+                "(Loop {} {} {})",
+                cond_index,
+                body,
+                to_listi(outputs, "ConsII", "NilII"),
+            ),
         }
     }
 }
