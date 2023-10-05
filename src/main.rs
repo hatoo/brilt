@@ -21,7 +21,7 @@ fn main() {
     egraph.parse_and_run_program(SCHEMA).unwrap();
 
     let outputs = egraph
-        .parse_and_run_program(&format!("(let e {})\n(run 100)\n(extract e)", &rvsdg))
+        .parse_and_run_program(&format!("(let e {})\n(simplify (saturate) e)", &rvsdg))
         .unwrap();
 
     println!("{}", outputs[0]);
