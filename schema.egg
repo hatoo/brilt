@@ -179,6 +179,33 @@
   (Cons node (Cons (Linear (Cons (Simple (rec_list node list)) tail)) rest))
 )
 
+; aw
+
+(relation no_prev_dep (ListE))
+
+(rule
+  ((no_prev_dep (ConsE i (Arg x) rest)))
+  ((delete (no_prev_dep (ConsE i (Arg x) rest))))
+)
+
+(rule
+  ((no_prev_dep (ConsE i _ rest)))
+  ((set (no_prev_dep (ConsE i _ rest)) ()))
+)
+
+(rule ((Simple expr))
+  ((no_prev_dep expr))
+)
+
+(rule ((= expr (Cons (Simple prev) (Cons (Simple succ) rest))) (no_prev_dep succ))
+  ((union expr (Cons (Simple succ) rest)))
+)
+
+(rule ((= node (Cons (Simple prev) (Cons (Linear (Cons (Simple succ) rest0)) rest))) (no_prev_dep succ))
+  ((union node (Cons (Linear (Cons (Simple succ) rest0)) rest)))
+)
+
+
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
 ;  a: int = const 47;
