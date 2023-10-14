@@ -1,30 +1,33 @@
 use brilt::{cfg::Cfg, restructure::StructureAnalysis, rvsdg::Rvsdg};
-use egglog::EGraph;
+use egglog::{EGraph, ExtractReport};
 
 fn main() {
-    let program = bril_rs::load_program();
+    let mut program = bril_rs::load_program();
 
-    let cfg = Cfg::new(&program.functions[0].instrs);
-    let sa = StructureAnalysis::new(cfg);
-    let rvsdg = Rvsdg::new(
-        &program.functions[0]
-            .args
-            .iter()
-            .map(|a| a.name.clone())
-            .collect::<Vec<_>>(),
-        sa,
-    );
+    for func in &mut program.functions {
+        let cfg = Cfg::new(&func.instrs);
+        let sa = StructureAnalysis::new(cfg);
+        let rvsdg = Rvsdg::new(
+            &func.args.iter().map(|a| a.name.clone()).collect::<Vec<_>>(),
+            sa,
+        );
 
-    const SCHEMA: &str = include_str!("../schema.egg");
-    let mut egraph = EGraph::default();
+        const SCHEMA: &str = include_str!("../schema.egg");
+        let mut egraph = EGraph::default();
 
-    egraph.parse_and_run_program(SCHEMA).unwrap();
+        egraph.parse_and_run_program(SCHEMA).unwrap();
 
-    let outputs = egraph
-        .parse_and_run_program(&format!("(let e {})\n(simplify (saturate) e)", &rvsdg))
-        .unwrap();
+        egraph
+            .parse_and_run_program(&format!("(let e {})\n(run 100)\n(extract e)", &rvsdg))
+            .unwrap();
 
-    println!("{}", outputs[0]);
+        let out = match egraph.get_extract_report().as_ref().unwrap() {
+            ExtractReport::Best { termdag, term, .. } => Rvsdg::from_egglog(&term, &termdag.nodes),
+            _ => panic!("No best term found"),
+        };
 
-    // TODO: Back optimized egglog to bril
+        func.instrs = out.to_bril(&func.args);
+    }
+
+    serde_json::to_writer_pretty(std::io::stdout(), &program).unwrap();
 }

@@ -9,6 +9,7 @@
 )
 
 (datatype Expr
+  (Nop)
   (ConstInt i64 :cost 0)
   (ConstBool Bool :cost 0)
   (Arg i64)

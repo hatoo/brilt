@@ -2,16 +2,18 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     fmt::Display,
+    hash::Hash,
 };
 
 use bril_rs::{Argument, Code, ConstOps, EffectOps, Instruction, Literal, Type, ValueOps};
+use egglog::Term;
 
 use crate::{
     annotation::{demand_set_annotation, read_write_annotation, Annotation},
     restructure::StructureAnalysis,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StateExpr {
     Arg(usize),
     Print(usize),
@@ -63,8 +65,35 @@ impl Display for StateExpr {
     }
 }
 
+impl StateExpr {
+    pub fn from_egglog(term: &Term, nodes: &[Term]) -> Self {
+        match term {
+            Term::App(head, tail) => match head.as_str() {
+                "Return" => {
+                    let n = match &nodes[tail[0]] {
+                        Term::App(head, tail) => match head.as_str() {
+                            "NoneI" => None,
+                            "SomeI" => Some(term_i64(&nodes[tail[0]]) as usize),
+                            _ => unreachable!(),
+                        },
+                        _ => unreachable!(),
+                    };
+                    Self::Return(n)
+                }
+                "Print" => {
+                    let n = term_i64(&nodes[tail[0]]) as usize;
+                    Self::Print(n)
+                }
+                _ => todo!("{}", head),
+            },
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
+    Nop,
     // RVSDG
     Arg(usize),
     // ConstOps
@@ -85,9 +114,43 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
 }
 
+impl Expr {
+    pub fn from_egglog(term: &Term, nodes: &[Term]) -> Self {
+        match term {
+            Term::Lit(egglog::ast::Literal::Int(i)) => Self::ConstInt(*i),
+            Term::Lit(_) => todo!(),
+            Term::App(head, tail) => match head.as_str() {
+                "Arg" => {
+                    let n = term_i64(&nodes[tail[0]]) as usize;
+                    Self::Arg(n)
+                }
+                "ConstInt" => {
+                    let i = term_i64(&nodes[tail[0]]);
+                    Self::ConstInt(i)
+                }
+                "ConstBool" => {
+                    let b = term_bool(&nodes[tail[0]]);
+                    Self::ConstBool(b)
+                }
+                "Add" => Self::Add(
+                    Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
+                    Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
+                ),
+                "Sub" => Self::Sub(
+                    Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
+                    Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
+                ),
+                _ => todo!("{}", head),
+            },
+            Term::Var(_) => unreachable!(),
+        }
+    }
+}
+
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Nop => write!(f, "(Nop)"),
             Self::Arg(n) => write!(f, "(Arg {})", n),
             Self::ConstInt(i) => write!(f, "(ConstInt {})", i),
             Self::ConstBool(b) => write!(f, "(ConstBool ({}))", if *b { "True" } else { "False" }),
@@ -233,6 +296,14 @@ impl BrilBuilder {
         } else {
             // FIXME: use macro
             let var: Argument = match expr {
+                Expr::Nop =>
+                // todo
+                {
+                    Argument {
+                        name: "nop".to_string(),
+                        arg_type: Type::Bool,
+                    }
+                }
                 Expr::Arg(n) => return args[*n].clone(),
                 Expr::ConstInt(i) => {
                     let dest = self.new_var();
@@ -564,6 +635,24 @@ impl BrilBuilder {
     }
 }
 
+fn term_i64(term: &Term) -> i64 {
+    match term {
+        Term::Lit(egglog::ast::Literal::Int(i)) => *i,
+        _ => unreachable!(),
+    }
+}
+
+fn term_bool(term: &Term) -> bool {
+    match term {
+        Term::App(b, _) => match b.as_str() {
+            "True" => true,
+            "False" => false,
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
 impl Rvsdg {
     pub fn new(args: &[String], mut structure: StructureAnalysis) -> Self {
         let args = args
@@ -577,6 +666,126 @@ impl Rvsdg {
         let demand = demand_set_annotation(rw);
 
         to_rvsdg(demand, &args, &[])
+    }
+
+    pub fn from_egglog(term: &Term, nodes: &[Term]) -> Self {
+        match term {
+            Term::App(head, tail) => match head.as_str() {
+                "Simple" => {
+                    let mut node = &nodes[tail[0]];
+                    let mut map = HashMap::new();
+
+                    loop {
+                        match node {
+                            Term::App(head, tail) => match head.as_str() {
+                                "NilE" => {
+                                    break;
+                                }
+                                "ConsE" => {
+                                    let id = term_i64(&nodes[tail[0]]);
+                                    map.insert(id, Expr::from_egglog(&nodes[tail[1]], nodes));
+
+                                    node = &nodes[tail[2]];
+                                }
+                                _ => unreachable!(),
+                            },
+                            _ => unreachable!(),
+                        }
+                    }
+
+                    let size = map.keys().max().unwrap_or(&0) + 1;
+                    let mut exprs = vec![Expr::Nop; size as usize];
+
+                    for (k, v) in map {
+                        exprs[k as usize] = v;
+                    }
+
+                    Rvsdg::Simple { outputs: exprs }
+                }
+                "Linear" => {
+                    let mut node = &nodes[tail[0]];
+                    let mut v = Vec::new();
+
+                    loop {
+                        match node {
+                            Term::App(head, tail) => match head.as_str() {
+                                "Nil" => {
+                                    break;
+                                }
+                                "Cons" => {
+                                    v.push(Self::from_egglog(&nodes[tail[0]], nodes));
+                                    node = &nodes[tail[1]];
+                                }
+                                _ => unreachable!(),
+                            },
+                            _ => unreachable!(),
+                        }
+                    }
+
+                    Rvsdg::Linear(v)
+                }
+                "StateFul" => {
+                    let mut map = HashMap::new();
+
+                    let mut node = &nodes[tail[0]];
+
+                    loop {
+                        match node {
+                            Term::App(head, tail) => match head.as_str() {
+                                "NilS" => {
+                                    break;
+                                }
+                                "ConsS" => {
+                                    map.insert(
+                                        term_i64(&nodes[tail[0]]),
+                                        StateExpr::from_egglog(&nodes[tail[1]], nodes),
+                                    );
+                                    node = &nodes[tail[2]];
+                                }
+                                _ => unreachable!(),
+                            },
+                            _ => unreachable!(),
+                        }
+                    }
+
+                    let size = map.keys().max().unwrap_or(&0) + 1;
+                    let mut exprs = vec![StateExpr::Arg(0); size as usize];
+
+                    for (k, v) in map {
+                        exprs[k as usize] = v;
+                    }
+
+                    match &nodes[tail[1]] {
+                        Term::App(head, tail) => match head.as_str() {
+                            "NoneS" => Rvsdg::StateFul {
+                                outputs: exprs,
+                                side_effect: None,
+                            },
+                            "SomeS" => Rvsdg::StateFul {
+                                outputs: exprs,
+                                side_effect: Some(StateExpr::from_egglog(&nodes[tail[0]], nodes)),
+                            },
+                            _ => unreachable!(),
+                        },
+                        _ => unreachable!(),
+                    }
+                }
+                "BranchIf" => {
+                    let cond_index = term_i64(&nodes[tail[0]]) as usize;
+                    let branches = [
+                        Box::new(Rvsdg::from_egglog(&nodes[tail[1]], nodes)),
+                        Box::new(Rvsdg::from_egglog(&nodes[tail[2]], nodes)),
+                    ];
+
+                    Rvsdg::BranchIf {
+                        cond_index,
+                        branches,
+                    }
+                }
+                _ => todo!("{}", head),
+            },
+            _ => unreachable!(),
+        }
     }
 
     pub fn to_bril(&self, args: &[Argument]) -> Vec<Code> {
