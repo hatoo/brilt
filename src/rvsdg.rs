@@ -169,7 +169,7 @@ impl Display for Expr {
             Self::Nop => write!(f, "(Nop)"),
             Self::Arg(n) => write!(f, "(Arg {})", n),
             Self::ConstInt(i) => write!(f, "(ConstInt {})", i),
-            Self::ConstBool(b) => write!(f, "(ConstBool ({}))", if *b { "True" } else { "False" }),
+            Self::ConstBool(b) => write!(f, "(ConstBool {})", if *b { "true" } else { "false" }),
             Self::Add(l, r) => write!(f, "(Add {} {})", l, r),
             Self::Sub(l, r) => write!(f, "(Sub {} {})", l, r),
             Self::Mul(l, r) => write!(f, "(Mul {} {})", l, r),
@@ -660,11 +660,7 @@ fn term_i64(term: &Term) -> i64 {
 
 fn term_bool(term: &Term) -> bool {
     match term {
-        Term::App(b, _) => match b.as_str() {
-            "True" => true,
-            "False" => false,
-            _ => unreachable!(),
-        },
+        Term::Lit(egglog::ast::Literal::Bool(b)) => *b,
         _ => unreachable!(),
     }
 }

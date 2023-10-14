@@ -1,8 +1,3 @@
-(datatype Bool
-  (True)
-  (False)
-)
-
 (datatype OptionI
   (SomeI i64)
   (NoneI)
@@ -11,7 +6,7 @@
 (datatype Expr
   (Nop)
   (ConstInt i64 :cost 0)
-  (ConstBool Bool :cost 0)
+  (ConstBool bool :cost 0)
   (Arg i64 :cost 1)
   (Add Expr Expr)
   (Sub Expr Expr)
@@ -78,7 +73,7 @@
 
 (datatype Value
   (Int i64)
-  (Boolean Bool)
+  (Boolean bool)
 )
 
 (function ConstValue (Node i64) Value)
@@ -86,7 +81,7 @@
 (rewrite
   (Cons node (Cons (BranchIf i then else) rest))
   (Cons node (Cons then rest))
-  :when ((= (ConstValue node i) (Boolean (True))))
+  :when ((= (ConstValue node i) (Boolean true)))
 )
 
 (rule
