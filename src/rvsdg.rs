@@ -140,6 +140,22 @@ impl Expr {
                     Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
                     Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
                 ),
+                "Mul" => Self::Mul(
+                    Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
+                    Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
+                ),
+                "Gt" => Self::Gt(
+                    Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
+                    Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
+                ),
+                "Lt" => Self::Lt(
+                    Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
+                    Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
+                ),
+                "Eq" => Self::Eq(
+                    Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
+                    Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
+                ),
                 _ => todo!("{}", head),
             },
             Term::Var(_) => unreachable!(),
@@ -782,6 +798,44 @@ impl Rvsdg {
                         branches,
                     }
                 }
+                "Loop" => {
+                    let cond_index = term_i64(&nodes[tail[0]]) as usize;
+                    let body = Self::from_egglog(&nodes[tail[1]], nodes);
+
+                    let mut map = HashMap::new();
+
+                    let mut node = &nodes[tail[2]];
+
+                    loop {
+                        match node {
+                            Term::App(head, tail) => match head.as_str() {
+                                "NilII" => {
+                                    break;
+                                }
+                                "ConsII" => {
+                                    map.insert(
+                                        term_i64(&nodes[tail[0]]),
+                                        term_i64(&nodes[tail[1]]),
+                                    );
+                                    node = &nodes[tail[2]];
+                                }
+                                _ => unreachable!(),
+                            },
+                            _ => unreachable!(),
+                        }
+                    }
+
+                    let size = map.keys().max().unwrap_or(&0) + 1;
+                    let mut outputs = vec![0; size as usize];
+                    for (k, v) in map {
+                        outputs[k as usize] = v as usize;
+                    }
+                    Rvsdg::Loop {
+                        body: Box::new(body),
+                        cond_index,
+                        outputs,
+                    }
+                }
                 _ => todo!("{}", head),
             },
             _ => unreachable!(),
@@ -1242,6 +1296,7 @@ mod test {
         cfg::Cfg,
         test::*,
     };
+    use egglog::{EGraph, ExtractReport};
     use glob::glob;
     use std::io::Cursor;
 
@@ -1358,6 +1413,69 @@ mod test {
                         .collect(),
                     &[],
                 );
+
+                let codes = rvsdg.to_bril(&function.args);
+
+                function.instrs = codes;
+            }
+
+            let json_after = serde_json::to_string_pretty(&program).unwrap();
+
+            assert_eq!(brili(&json_before).0, brili(&json_after).0);
+            println!("ok");
+        }
+    }
+
+    #[test]
+    fn test_rvsdg_egglog_brili() {
+        for entry in glob("bril/examples/test/df/*.bril")
+            .unwrap()
+            .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+            .chain(glob("tests/*.bril").unwrap())
+        {
+            let path = entry.unwrap();
+            if path.ends_with("call.bril") || path.ends_with("rec.bril") {
+                // TODO support call
+                continue;
+            }
+            let src = std::fs::read_to_string(&path).unwrap();
+            let json_before = bril2json(src.as_str());
+            let mut program = bril_rs::load_program_from_read(Cursor::new(json_before.clone()));
+
+            print!("checking {} ... ", path.to_str().unwrap());
+            for function in &mut program.functions {
+                let cfg = Cfg::new(&function.instrs);
+
+                let mut sa = StructureAnalysis::new(cfg);
+                sa.split_effect();
+                let rw = read_write_annotation(sa);
+                let ds = demand_set_annotation(rw);
+                // eprintln!("{}", &ds);
+                let rvsdg = to_rvsdg(
+                    ds,
+                    &function
+                        .args
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| (v.name.clone(), i))
+                        .collect(),
+                    &[],
+                );
+                const SCHEMA: &str = include_str!("../schema.egg");
+                let mut egraph = EGraph::default();
+
+                egraph.parse_and_run_program(SCHEMA).unwrap();
+
+                egraph
+                    .parse_and_run_program(&format!("(let e {})\n(run 100)\n(extract e)", &rvsdg))
+                    .unwrap();
+
+                let rvsdg = match egraph.get_extract_report().as_ref().unwrap() {
+                    ExtractReport::Best { termdag, term, .. } => {
+                        Rvsdg::from_egglog(&term, &termdag.nodes)
+                    }
+                    _ => panic!("No best term found"),
+                };
 
                 let codes = rvsdg.to_bril(&function.args);
 

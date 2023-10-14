@@ -15,7 +15,9 @@
   (Arg i64)
   (Add Expr Expr)
   (Sub Expr Expr)
+  (Mul Expr Expr)
   (Gt Expr Expr)
+  (Lt Expr Expr)
   (Eq Expr Expr)
 )
 
