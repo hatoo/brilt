@@ -12,7 +12,7 @@
   (Nop)
   (ConstInt i64 :cost 0)
   (ConstBool Bool :cost 0)
-  (Arg i64)
+  (Arg i64 :cost 1)
   (Add Expr Expr)
   (Sub Expr Expr)
   (Mul Expr Expr)
@@ -69,6 +69,13 @@
 
 ; Start Rules
 
+; const fold
+
+(rewrite
+  (Sub (ConstInt x) (ConstInt y))
+  (ConstInt (- x y))
+)
+
 (datatype Value
   (Int i64)
   (Boolean Bool)
@@ -119,7 +126,7 @@
 )
 
 (function rec_list (Node ListE) ListE)
-
+(function prev_and_expr (Node Expr) Expr)
 (function value-to-expr (Value) Expr)
 
 (rewrite
@@ -139,6 +146,26 @@
 
 (rewrite
   (rec_list node (ConsE i expr rest))
+  (ConsE i (prev_and_expr node expr) (rec_list node rest))
+)
+
+(rewrite
+  (prev_and_expr prev (Arg i))
+  (value-to-expr (ConstValue prev i))
+)
+
+(rewrite
+  (prev_and_expr prev (Sub x y))
+  (Sub (prev_and_expr prev x) (prev_and_expr prev y))
+)
+
+(rewrite
+  (prev_and_expr node expr)
+  expr
+)
+
+(rewrite
+  (rec_list node (ConsE i expr rest))
   (ConsE i expr (rec_list node rest))
 )
 
@@ -150,6 +177,11 @@
 (rewrite
   (Cons node (Cons (Simple list) rest))
   (Cons node (Cons (Simple (rec_list node list)) rest))
+)
+
+(rewrite
+  (Cons node (Cons (Linear (Cons (Simple list) tail)) rest))
+  (Cons node (Cons (Linear (Cons (Simple (rec_list node list)) tail)) rest))
 )
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril

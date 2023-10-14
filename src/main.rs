@@ -26,6 +26,7 @@ fn main() {
             _ => panic!("No best term found"),
         };
 
+        dbg!(&out);
         func.instrs = out.to_bril(&func.args);
     }
 
