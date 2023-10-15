@@ -697,14 +697,11 @@ impl Rvsdg {
                 cond_index,
                 branches,
             } => {
-                writeln!(
-                    f,
-                    "(BranchIf {} {} {} {})",
-                    new_id(),
-                    cond_index,
-                    branches[0],
-                    branches[1]
-                )
+                write!(f, "(BranchIf {} {} ", new_id(), cond_index,)?;
+                branches[0].fmt_id(f, id)?;
+                write!(f, " ")?;
+                branches[1].fmt_id(f, id)?;
+                writeln!(f, ")")
             }
             Rvsdg::BranchSwitch { .. } => {
                 todo!()
@@ -713,14 +710,13 @@ impl Rvsdg {
                 body,
                 cond_index,
                 outputs,
-            } => writeln!(
-                f,
-                "(Loop {} {} {} {})",
-                new_id(),
-                cond_index,
-                body,
-                to_listi(outputs, "ConsII", "NilII"),
-            ),
+            } => {
+                writeln!(f, "(Loop {} {} ", new_id(), cond_index,)?;
+
+                body.fmt_id(f, id)?;
+                write!(f, " ")?;
+                writeln!(f, "{})", to_listi(outputs, "ConsII", "NilII"))
+            }
         }
     }
 
