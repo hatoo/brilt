@@ -160,6 +160,7 @@ version = "0.1.0"
 dependencies = [
  "bimap",
  "bril-rs",
+ "clap",
  "egglog",
  "glob",
  "petgraph",
