@@ -78,10 +78,10 @@
 
 ; const fold
 
-(rewrite
-  (Sub (ConstInt x) (ConstInt y))
-  (ConstInt (- x y))
-)
+; (rewrite
+; (Sub (ConstInt x) (ConstInt y))
+; (ConstInt (- x y))
+; )
 
 ; nth expr
 
@@ -208,6 +208,7 @@
 
 ; no deps optimize
 
+(push)
 (function NoUseArg (ListE) bool :merge (and new old))
 
 (rule
@@ -228,6 +229,8 @@
   (Cons (Simple exprs) rest)
   :when ((= (NoUseArg exprs) true))
 )
+
+(pop)
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
