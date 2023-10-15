@@ -28,6 +28,24 @@ fn to_list<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
     }
 }
 
+fn to_list_rvsdg(
+    v: &[Rvsdg],
+    f: &mut std::fmt::Formatter<'_>,
+    id: &mut usize,
+    cons: &str,
+    nil: &str,
+) -> std::fmt::Result {
+    if v.is_empty() {
+        writeln!(f, "({})", nil)
+    } else {
+        write!(f, "({} ", cons,)?;
+        v[0].fmt_id(f, id)?;
+        write!(f, " ")?;
+        to_list_rvsdg(&v[1..], f, id, cons, nil)?;
+        write!(f, ")")
+    }
+}
+
 fn to_listi<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
     fn to_list_impl<T: Display>(v: &[T], i: usize, cons: &str, nil: &str) -> String {
         if v.is_empty() {
@@ -83,6 +101,10 @@ impl StateExpr {
                 "Print" => {
                     let n = term_i64(&nodes[tail[0]]) as usize;
                     Self::Print(n)
+                }
+                "SArg" => {
+                    let n = term_i64(&nodes[tail[0]]) as usize;
+                    Self::Arg(n)
                 }
                 _ => todo!("{}", head),
             },
@@ -222,57 +244,7 @@ pub enum Rvsdg {
 
 impl Display for Rvsdg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Rvsdg::Simple { outputs } => {
-                writeln!(f, "(Simple {})", to_listi(outputs, "ConsE", "NilE"))
-            }
-            Rvsdg::StateFul {
-                outputs,
-                side_effect,
-            } => {
-                if let Some(se) = side_effect {
-                    writeln!(
-                        f,
-                        "(StateFul {} (SomeS {}))",
-                        to_listi(outputs, "ConsS", "NilS"),
-                        se
-                    )
-                } else {
-                    writeln!(
-                        f,
-                        "(StateFul {} (NoneS))",
-                        to_listi(outputs, "ConsS", "NilS"),
-                    )
-                }
-            }
-            Rvsdg::Linear(v) => {
-                writeln!(f, "(Linear {})", to_list(v, "Cons", "Nil"))
-            }
-            Rvsdg::BranchIf {
-                cond_index,
-                branches,
-            } => {
-                writeln!(
-                    f,
-                    "(BranchIf {} {} {})",
-                    cond_index, branches[0], branches[1]
-                )
-            }
-            Rvsdg::BranchSwitch { .. } => {
-                todo!()
-            }
-            Rvsdg::Loop {
-                body,
-                cond_index,
-                outputs,
-            } => writeln!(
-                f,
-                "(Loop {} {} {})",
-                cond_index,
-                body,
-                to_listi(outputs, "ConsII", "NilII"),
-            ),
-        }
+        self.fmt_id(f, &mut 0)
     }
 }
 
@@ -680,11 +652,83 @@ impl Rvsdg {
         to_rvsdg(demand, &args, &[])
     }
 
+    fn fmt_id(&self, f: &mut std::fmt::Formatter<'_>, id: &mut usize) -> std::fmt::Result {
+        let mut new_id = || {
+            let i = *id;
+            *id += 1;
+            i
+        };
+        match self {
+            Rvsdg::Simple { outputs } => {
+                writeln!(
+                    f,
+                    "(Simple {} {})",
+                    new_id(),
+                    to_listi(outputs, "ConsE", "NilE")
+                )
+            }
+            Rvsdg::StateFul {
+                outputs,
+                side_effect,
+            } => {
+                if let Some(se) = side_effect {
+                    writeln!(
+                        f,
+                        "(StateFul {} {} (SomeS {}))",
+                        new_id(),
+                        to_listi(outputs, "ConsS", "NilS"),
+                        se
+                    )
+                } else {
+                    writeln!(
+                        f,
+                        "(StateFul {} {} (NoneS))",
+                        new_id(),
+                        to_listi(outputs, "ConsS", "NilS"),
+                    )
+                }
+            }
+            Rvsdg::Linear(v) => {
+                write!(f, "(Linear {} ", new_id(),)?;
+                to_list_rvsdg(v, f, id, "Cons", "Nil")?;
+                writeln!(f, ")")
+            }
+            Rvsdg::BranchIf {
+                cond_index,
+                branches,
+            } => {
+                writeln!(
+                    f,
+                    "(BranchIf {} {} {} {})",
+                    new_id(),
+                    cond_index,
+                    branches[0],
+                    branches[1]
+                )
+            }
+            Rvsdg::BranchSwitch { .. } => {
+                todo!()
+            }
+            Rvsdg::Loop {
+                body,
+                cond_index,
+                outputs,
+            } => writeln!(
+                f,
+                "(Loop {} {} {} {})",
+                new_id(),
+                cond_index,
+                body,
+                to_listi(outputs, "ConsII", "NilII"),
+            ),
+        }
+    }
+
     pub fn from_egglog(term: &Term, nodes: &[Term]) -> Self {
         match term {
             Term::App(head, tail) => match head.as_str() {
                 "Simple" => {
-                    let mut node = &nodes[tail[0]];
+                    let mut node = &nodes[tail[1]];
                     let mut map = HashMap::new();
 
                     loop {
@@ -715,7 +759,7 @@ impl Rvsdg {
                     Rvsdg::Simple { outputs: exprs }
                 }
                 "Linear" => {
-                    let mut node = &nodes[tail[0]];
+                    let mut node = &nodes[tail[1]];
                     let mut v = Vec::new();
 
                     loop {
@@ -739,7 +783,7 @@ impl Rvsdg {
                 "StateFul" => {
                     let mut map = HashMap::new();
 
-                    let mut node = &nodes[tail[0]];
+                    let mut node = &nodes[tail[1]];
 
                     loop {
                         match node {
@@ -767,7 +811,7 @@ impl Rvsdg {
                         exprs[k as usize] = v;
                     }
 
-                    match &nodes[tail[1]] {
+                    match &nodes[tail[2]] {
                         Term::App(head, tail) => match head.as_str() {
                             "NoneS" => Rvsdg::StateFul {
                                 outputs: exprs,
@@ -783,10 +827,10 @@ impl Rvsdg {
                     }
                 }
                 "BranchIf" => {
-                    let cond_index = term_i64(&nodes[tail[0]]) as usize;
+                    let cond_index = term_i64(&nodes[tail[1]]) as usize;
                     let branches = [
-                        Box::new(Rvsdg::from_egglog(&nodes[tail[1]], nodes)),
                         Box::new(Rvsdg::from_egglog(&nodes[tail[2]], nodes)),
+                        Box::new(Rvsdg::from_egglog(&nodes[tail[3]], nodes)),
                     ];
 
                     Rvsdg::BranchIf {
@@ -795,12 +839,12 @@ impl Rvsdg {
                     }
                 }
                 "Loop" => {
-                    let cond_index = term_i64(&nodes[tail[0]]) as usize;
-                    let body = Self::from_egglog(&nodes[tail[1]], nodes);
+                    let cond_index = term_i64(&nodes[tail[1]]) as usize;
+                    let body = Self::from_egglog(&nodes[tail[2]], nodes);
 
                     let mut map = HashMap::new();
 
-                    let mut node = &nodes[tail[2]];
+                    let mut node = &nodes[tail[3]];
 
                     loop {
                         match node {

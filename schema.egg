@@ -48,11 +48,12 @@
   (NoneS)
 )
 
+; each first i64's are Node's id
 (datatype Node
-  (Simple ListE)
-  (StateFul ListS OptionS)
-  (BranchIf i64 Node Node)
-  (Loop i64 Node ListII)
+  (Simple i64 ListE)
+  (StateFul i64 ListS OptionS)
+  (BranchIf i64 i64 Node Node)
+  (Loop i64 i64 Node ListII)
 )
 
 (datatype List
@@ -60,194 +61,12 @@
   (Nil)
 )
 
-(function Linear (List) Node)
+(function Linear (i64 List) Node)
 
 ; Start Rules
 
-; Structure
+; todo
 
-(rewrite
-  (Cons (Simple node) (Cons (Linear list2) rest))
-  (Cons (Linear (Cons (Simple node) list2)) rest)
-)
-
-(rewrite
-  (Linear (Cons (Linear list) (Nil)))
-  (Linear list)
-)
-
-; const fold
-
-(rewrite
-  (Sub (ConstInt x) (ConstInt y))
-  (ConstInt (- x y))
-)
-
-; nth expr
-
-(function nth (ListE i64) Expr)
-
-(rewrite
-  (nth (ConsE i expr rest) i)
-  expr
-)
-
-(rewrite
-  (nth (ConsE i expr rest) j)
-  (nth rest j)
-  :when ((< i j))
-)
-
-; const at
-
-(datatype Value
-  (Int i64)
-  (Boolean bool)
-)
-
-(function ConstValue (Node i64) Value)
-(function const-value-expr (Value) Expr)
-(function ConstExpr (Node i64) Expr)
-
-(rewrite
-  (const-value-expr (Int x))
-  (ConstInt x)
-)
-
-(rewrite
-  (const-value-expr (Boolean b))
-  (ConstBool b)
-)
-
-(rule
-  ((= v (ConstValue node i)))
-  ((union (ConstExpr node i) (const-value-expr v)))
-)
-
-(rule
-  ((ConstValue (Simple exprs) i))
-  ((nth exprs i))
-)
-
-(rule
-  ((ConstValue (Simple exprs) i) (= (ConstInt x) (nth exprs i)))
-  ((union (ConstValue (Simple exprs) i) (Int x)))
-)
-
-(rule
-  ((ConstValue (Simple exprs) i) (= (ConstBool b) (nth exprs i)))
-  ((union (ConstValue (Simple exprs) i) (Boolean b)))
-)
-
-; const arg fold
-
-(sort E0)
-(function ConstArgFold (Node ListE ListE) E0)
-(sort E1)
-(function ConstArgFoldExpr (Node Expr Expr) E1)
-
-(rule
-  ((ConstArgFoldExpr node orig (Arg i)))
-  ((ConstValue node i))
-)
-
-(rewrite
-  (ConstArgFoldExpr node orig (Arg i))
-  (ConstArgFoldExpr node orig (ConstExpr node i))
-)
-
-(rule
-  ((ConstArgFoldExpr node orig (Sub x y)))
-  ((ConstArgFoldExpr node x x) (ConstArgFoldExpr node y y))
-)
-
-(rewrite
-  (ConstArgFoldExpr node orig (Sub x y))
-  (ConstArgFoldExpr node orig (Sub lhs rhs))
-  :when ((ConstArgFoldExpr node x lhs) (ConstArgFoldExpr node y rhs))
-)
-
-(rewrite
-  (ConstArgFold node orig (ConsE i expr rest))
-  (ConstArgFold node orig (ConsE i o orest))
-  :when ((ConstArgFoldExpr node expr o) (ConstArgFold node rest orest))
-)
-
-(rule
-  ((Cons node (Cons (Simple exprs) rest)))
-  ((ConstArgFold node exprs exprs))
-)
-
-(rule
-  ((ConstArgFold node orig (ConsE i expr rest)))
-  ((ConstArgFoldExpr node expr expr))
-)
-
-(rule
-  ((ConstArgFold node orig (ConsE i expr rest)))
-  ((ConstArgFold node rest rest))
-)
-
-(rule
-  ((Cons node (Cons (Simple exprs) rest)))
-  ((ConstArgFold node exprs exprs))
-)
-
-(rewrite
-  (Cons node (Cons (Simple exprs) rest))
-  (Cons node (Cons (Simple opt) rest))
-  :when ((ConstArgFold node exprs opt))
-)
-
-; branch optimize
-
-(rule
-  ((Cons node (Cons (BranchIf i then else) rest)))
-  ((ConstValue node i))
-)
-
-(rule
-  ((= p (Cons node (Cons (BranchIf i then else) rest))) (= (Boolean true) (ConstValue node i)))
-  ((union p (Cons node (Cons then rest))))
-)
-
-; no deps optimize
-(datatype Tri
-  (T)
-  (F)
-  (M)
-)
-
-(function app (Tri Tri) Tri)
-(rewrite (app x y) (app y x))
-(rewrite (app (T) (T)) (T))
-(rewrite (app (M) x) x)
-(rewrite (app (F) x) (F))
-
-(function NoUseArg (ListE) Tri :merge (app new old) :default (M))
-
-(rule
-  ((NoUseArg (ConsE i (Arg j) rest)))
-  ((set (NoUseArg (ConsE i (Arg j) rest)) (F)))
-)
-
-(rule
-  ((NoUseArg (ConsE i expr rest)))
-  ((set (NoUseArg (ConsE i expr rest)) (NoUseArg rest)))
-)
-
-(set (NoUseArg (NilE)) (T))
-
-(rule
-  ((Simple exprs))
-  ((NoUseArg exprs))
-)
-
-(rewrite
-  (Cons (Simple pred) (Cons (Simple exprs) rest))
-  (Cons (Simple exprs) rest)
-  :when ((= (NoUseArg exprs) (T)))
-)
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
