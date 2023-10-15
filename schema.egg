@@ -210,30 +210,42 @@
 )
 
 ; no deps optimize
+(datatype Tri
+  (T)
+  (F)
+  (M)
+)
 
-(push)
-(function NoUseArg (ListE) bool :merge (and new old))
+(function app (Tri Tri) Tri)
+(rewrite (app x y) (app y x))
+(rewrite (app (T) (T)) (T))
+(rewrite (app (M) x) x)
+(rewrite (app (F) x) (F))
+
+(function NoUseArg (ListE) Tri :merge (app new old) :default (M))
 
 (rule
   ((NoUseArg (ConsE i (Arg j) rest)))
-  ((set (NoUseArg (ConsE i (Arg j) rest)) false))
+  ((set (NoUseArg (ConsE i (Arg j) rest)) (F)))
 )
 
-(rule ((NoUseArg (ConsE i expr rest))) ((set (NoUseArg (ConsE i expr rest)) (NoUseArg rest))))
-(set (NoUseArg (NilE)) true)
+(rule
+  ((NoUseArg (ConsE i expr rest)))
+  ((set (NoUseArg (ConsE i expr rest)) (NoUseArg rest)))
+)
+
+(set (NoUseArg (NilE)) (T))
 
 (rule
   ((Simple exprs))
-  ((set (NoUseArg exprs) true))
+  ((NoUseArg exprs))
 )
 
 (rewrite
   (Cons (Simple pred) (Cons (Simple exprs) rest))
   (Cons (Simple exprs) rest)
-  :when ((= (NoUseArg exprs) true))
+  :when ((= (NoUseArg exprs) (T)))
 )
-
-(pop)
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
