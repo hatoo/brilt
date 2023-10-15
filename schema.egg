@@ -48,11 +48,12 @@
   (NoneS)
 )
 
+; each first i64's are Node's id
 (datatype Node
-  (Simple ListE)
-  (StateFul ListS OptionS)
-  (BranchIf i64 Node Node)
-  (Loop i64 Node ListII)
+  (Simple i64 ListE)
+  (StateFul i64 ListS OptionS)
+  (BranchIf i64 i64 Node Node)
+  (Loop i64 i64 Node ListII)
 )
 
 (datatype List
@@ -60,193 +61,158 @@
   (Nil)
 )
 
-(function Linear (List) Node)
+(function Linear (i64 List) Node)
 
 ; Start Rules
 
-; Structure
-
-(rewrite
-  (Cons (Simple node) (Cons (Linear list2) rest))
-  (Cons (Linear (Cons (Simple node) list2)) rest)
-)
-
-(rewrite
-  (Linear (Cons (Linear list) (Nil)))
-  (Linear list)
-)
-
-; const fold
+; peephole
 
 (rewrite
   (Sub (ConstInt x) (ConstInt y))
   (ConstInt (- x y))
 )
 
+; structure
+
+(rewrite
+  (Linear id (Cons (Linear id2 nodes) Nil))
+  (Linear id2 nodes)
+)
+
+(rewrite
+  (Cons (Simple id exprs) (Cons (Linear id2 exprs2) rest))
+  (Cons (Linear id2 (Cons (Simple id exprs) exprs2)) rest)
+)
+
 ; nth expr
+(relation nth (i64 i64 Expr))
+(relation nth-for (i64 ListE))
+(rule
+  ((Simple id exprs))
+  ((nth-for id exprs))
+)
+(rule
+  ((nth-for id (ConsE i expr rest)))
+  ((nth id i expr) (nth-for id rest))
+)
 
-(function nth (ListE i64) Expr)
+; apply optimized nth
+
+(relation apply-nth (i64 ListE ListE))
+(rule
+  ((apply-nth id (ConsE i expr rest) (ConsE i expr2 rest2)))
+  ((apply-nth id rest rest2))
+)
+(rule
+  ((apply-nth id (ConsE i expr rest) (ConsE i expr rest)) (nth id i expr2) (apply-nth id rest rest2))
+  ((apply-nth id (ConsE i expr rest) (ConsE i expr2 rest2)))
+)
+(rule
+  ((Simple id exprs))
+  ((apply-nth id exprs exprs))
+)
+(rewrite
+  (Simple id exprs)
+  (Simple id exprs2)
+  :when ((apply-nth id exprs exprs2))
+)
+
+; branch optimization
 
 (rewrite
-  (nth (ConsE i expr rest) i)
-  expr
+  (Cons (Simple id exprs) (Cons (BranchIf id2 cond then else) rest))
+  (Cons (Simple id exprs) (Cons then rest))
+  :when ((nth id cond (ConstBool true)))
 )
 
 (rewrite
-  (nth (ConsE i expr rest) j)
-  (nth rest j)
-  :when ((< i j))
+  (Cons (Simple id exprs) (Cons (BranchIf id2 cond then else) rest))
+  (Cons (Simple id exprs) (Cons else rest))
+  :when ((nth id cond (ConstBool false)))
 )
 
-; const at
+; const fold
 
-(datatype Value
+(datatype Const
   (Int i64)
-  (Boolean bool)
+  (Bool bool)
+)
+(relation nth-const (i64 i64 Const))
+(function const-expr (Const) Expr)
+(rule ((nth id i (ConstInt x))) ((nth-const id i (Int x))))
+(rule ((nth id i (ConstBool b))) ((nth-const id i (Bool b))))
+(rule ((Int i)) ((union (const-expr (Int i)) (ConstInt i))))
+(rule ((Bool b)) ((union (const-expr (Bool b)) (ConstBool b))))
+
+(rule
+  ((Cons (Simple id exprs) (Cons (Simple id2 exprs2) rest)) (nth-const id i c) (nth id2 j (Arg i)))
+  ((nth id2 j (const-expr c)))
 )
 
-(function ConstValue (Node i64) Value)
-(function const-value-expr (Value) Expr)
-(function ConstExpr (Node i64) Expr)
-
-(rewrite
-  (const-value-expr (Int x))
-  (ConstInt x)
+; deep const fold
+(relation prev (i64 i64))
+(rule
+  ((Cons (Simple id exprs) (Cons (Simple id2 exprs2) rest)))
+  ((prev id2 id))
 )
 
-(rewrite
-  (const-value-expr (Boolean b))
-  (ConstBool b)
+(relation opt-expr (i64 Expr Expr))
+(rule
+  ((nth id i expr))
+  ((opt-expr id expr expr))
+)
+(rule
+  ((opt-expr id expr (Arg i)) (prev id idprev) (nth-const idprev i c))
+  ((opt-expr id expr (const-expr c)))
+)
+(rule
+  ((opt-expr id expr (Sub x y)))
+  ((opt-expr id x x) (opt-expr id y y))
 )
 
 (rule
-  ((= v (ConstValue node i)))
-  ((union (ConstExpr node i) (const-value-expr v)))
+  ((opt-expr id expr (Sub x y)) (opt-expr id x x2) (opt-expr id y y2))
+  ((opt-expr id expr (Sub x2 y2)))
 )
+
+; apply opt-expr
 
 (rule
-  ((ConstValue (Simple exprs) i))
-  ((nth exprs i))
+  ((nth id i expr) (opt-expr id expr expr2))
+  ((nth id i expr2))
 )
-
 (rule
-  ((ConstValue (Simple exprs) i) (= (ConstInt x) (nth exprs i)))
-  ((union (ConstValue (Simple exprs) i) (Int x)))
-)
-
-(rule
-  ((ConstValue (Simple exprs) i) (= (ConstBool b) (nth exprs i)))
-  ((union (ConstValue (Simple exprs) i) (Boolean b)))
-)
-
-; const arg fold
-
-(sort E0)
-(function ConstArgFold (Node ListE ListE) E0)
-(sort E1)
-(function ConstArgFoldExpr (Node Expr Expr) E1)
-
-(rule
-  ((ConstArgFoldExpr node orig (Arg i)))
-  ((ConstValue node i))
-)
-
-(rewrite
-  (ConstArgFoldExpr node orig (Arg i))
-  (ConstArgFoldExpr node orig (ConstExpr node i))
-)
-
-(rule
-  ((ConstArgFoldExpr node orig (Sub x y)))
-  ((ConstArgFoldExpr node x x) (ConstArgFoldExpr node y y))
-)
-
-(rewrite
-  (ConstArgFoldExpr node orig (Sub x y))
-  (ConstArgFoldExpr node orig (Sub lhs rhs))
-  :when ((ConstArgFoldExpr node x lhs) (ConstArgFoldExpr node y rhs))
-)
-
-(rewrite
-  (ConstArgFold node orig (ConsE i expr rest))
-  (ConstArgFold node orig (ConsE i o orest))
-  :when ((ConstArgFoldExpr node expr o) (ConstArgFold node rest orest))
-)
-
-(rule
-  ((Cons node (Cons (Simple exprs) rest)))
-  ((ConstArgFold node exprs exprs))
-)
-
-(rule
-  ((ConstArgFold node orig (ConsE i expr rest)))
-  ((ConstArgFoldExpr node expr expr))
-)
-
-(rule
-  ((ConstArgFold node orig (ConsE i expr rest)))
-  ((ConstArgFold node rest rest))
-)
-
-(rule
-  ((Cons node (Cons (Simple exprs) rest)))
-  ((ConstArgFold node exprs exprs))
-)
-
-(rewrite
-  (Cons node (Cons (Simple exprs) rest))
-  (Cons node (Cons (Simple opt) rest))
-  :when ((ConstArgFold node exprs opt))
-)
-
-; branch optimize
-
-(rule
-  ((Cons node (Cons (BranchIf i then else) rest)))
-  ((ConstValue node i))
-)
-
-(rule
-  ((= p (Cons node (Cons (BranchIf i then else) rest))) (= (Boolean true) (ConstValue node i)))
-  ((union p (Cons node (Cons then rest))))
+  ((nth id i (Sub x y)) (opt-expr id x x2) (opt-expr id y y2))
+  ((nth id i (Sub x2 y2)))
 )
 
 ; no deps optimize
-(datatype Tri
-  (T)
-  (F)
-  (M)
+
+(relation has-arg (Expr))
+(rule
+  ((Arg i))
+  ((has-arg (Arg i)))
+)
+(rule
+  ((Sub x y) (has-arg x))
+  ((has-arg (Sub x y)))
+)
+(rule
+  ((Sub x y) (has-arg y))
+  ((has-arg (Sub x y)))
 )
 
-(function app (Tri Tri) Tri)
-(rewrite (app x y) (app y x))
-(rewrite (app (T) (T)) (T))
-(rewrite (app (M) x) x)
-(rewrite (app (F) x) (F))
-
-(function NoUseArg (ListE) Tri :merge (app new old) :default (M))
-
+(relation no-arg-exprs (ListE))
+(no-arg-exprs (NilE))
 (rule
-  ((NoUseArg (ConsE i (Arg j) rest)))
-  ((set (NoUseArg (ConsE i (Arg j) rest)) (F)))
-)
-
-(rule
-  ((NoUseArg (ConsE i expr rest)))
-  ((set (NoUseArg (ConsE i expr rest)) (NoUseArg rest)))
-)
-
-(set (NoUseArg (NilE)) (T))
-
-(rule
-  ((Simple exprs))
-  ((NoUseArg exprs))
+  ((ConsE i expr rest) (no-arg-exprs rest) (!= (Arg z) expr))
+  ((no-arg-exprs (ConsE i expr rest)))
 )
 
 (rewrite
-  (Cons (Simple pred) (Cons (Simple exprs) rest))
-  (Cons (Simple exprs) rest)
-  :when ((= (NoUseArg exprs) (T)))
+  (Cons (Simple id exprs) (Cons (Simple id2 exprs2) rest))
+  (Cons (Simple id2 exprs2) rest)
+  :when ((no-arg-exprs exprs2))
 )
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
@@ -270,11 +236,27 @@
 
 ; cond is a constant. So egglog will optimize branches.
 ; (let expr
-; (Linear (Cons (Simple (ConsE 0 (ConstInt 47) (ConsE 1 (ConstBool (True)) (NilE)))) (Cons (BranchIf 1 (Simple (ConsE 0 (Arg 0) (ConsE 1 (ConstInt 5) (NilE)))) (Simple (ConsE 0 (ConstInt 2) (ConsE 1 (ConstInt 10) (NilE))))) (Cons (Linear (Cons (Simple (ConsE 0 (Sub (Arg 0) (Arg 1)) (NilE))) (Cons (StateFul (NilS) (SomeS (Print 0))) (Cons (StateFul (NilS) (SomeS (Return (NoneI)))) (Nil))))) (Nil)))))
+; (Linear 0 (Cons (Simple 1 (ConsE 0 (ConstBool true) (ConsE 1 (ConstInt 47) (NilE))))
+; (Cons (BranchIf 2 0 (Simple 3 (ConsE 0 (ConstInt 5) (ConsE 1 (Arg 1) (NilE))))
+; (Simple 4 (ConsE 0 (ConstInt 10) (ConsE 1 (ConstInt 2) (NilE))))
+; )
+; (Cons (Linear 5 (Cons (Simple 6 (ConsE 0 (Sub (Arg 1) (Arg 0)) (NilE)))
+; (Cons (StateFul 7 (NilS) (SomeS (Print 0)))
+; (Cons (StateFul 8 (NilS) (SomeS (Return (NoneI))))
+; (Nil)
+; ))))
+; (Nil)
+; ))))
 ; )
 
 
 ; (run 100)
 
-; (print-table ConstValue)
 ; (extract expr)
+
+; you'll get
+; @main {
+; v0: int = const 42;
+; print v0;
+; ret;
+; }
