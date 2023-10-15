@@ -156,8 +156,6 @@
   ((prev id2 id))
 )
 
-
-
 (relation opt-expr (i64 Expr Expr))
 (rule
   ((nth id i expr))
@@ -237,24 +235,28 @@
 ;}
 
 ; cond is a constant. So egglog will optimize branches.
-(let expr
-  (Linear 0 (Cons (Simple 1 (ConsE 0 (ConstBool true) (ConsE 1 (ConstInt 47) (NilE))))
-      (Cons (BranchIf 2 0 (Simple 3 (ConsE 0 (ConstInt 5) (ConsE 1 (Arg 1) (NilE))))
-          (Simple 4 (ConsE 0 (ConstInt 10) (ConsE 1 (ConstInt 2) (NilE))))
-        )
-        (Cons (Linear 5 (Cons (Simple 6 (ConsE 0 (Sub (Arg 1) (Arg 0)) (NilE)))
-              (Cons (StateFul 7 (NilS) (SomeS (Print 0)))
-                (Cons (StateFul 8 (NilS) (SomeS (Return (NoneI))))
-                  (Nil)
-                ))))
-          (Nil)
-        ))))
-)
+; (let expr
+; (Linear 0 (Cons (Simple 1 (ConsE 0 (ConstBool true) (ConsE 1 (ConstInt 47) (NilE))))
+; (Cons (BranchIf 2 0 (Simple 3 (ConsE 0 (ConstInt 5) (ConsE 1 (Arg 1) (NilE))))
+; (Simple 4 (ConsE 0 (ConstInt 10) (ConsE 1 (ConstInt 2) (NilE))))
+; )
+; (Cons (Linear 5 (Cons (Simple 6 (ConsE 0 (Sub (Arg 1) (Arg 0)) (NilE)))
+; (Cons (StateFul 7 (NilS) (SomeS (Print 0)))
+; (Cons (StateFul 8 (NilS) (SomeS (Return (NoneI))))
+; (Nil)
+; ))))
+; (Nil)
+; ))))
+; )
 
 
-(run 100)
+; (run 100)
 
-(print-function nth 36)
-(print-function nth-const 36)
-(print-function opt-expr 36)
-(extract expr)
+; (extract expr)
+
+; you'll get
+; @main {
+; v0: int = const 42;
+; print v0;
+; ret;
+; }
