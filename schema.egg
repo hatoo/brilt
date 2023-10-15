@@ -78,10 +78,10 @@
 
 ; const fold
 
-; (rewrite
-; (Sub (ConstInt x) (ConstInt y))
-; (ConstInt (- x y))
-; )
+(rewrite
+  (Sub (ConstInt x) (ConstInt y))
+  (ConstInt (- x y))
+)
 
 ; nth expr
 
@@ -142,31 +142,34 @@
 ; const arg fold
 
 (function ConstArgFold (Node ListE) ListE)
-(function ConstArgFoldExpr (Node Expr) Expr)
+(sort E1)
+(function ConstArgFoldExpr (Node Expr Expr) E1)
 
 (rule
-  ((ConstArgFoldExpr node (Arg i)))
+  ((ConstArgFoldExpr node (Arg i) o))
   ((ConstValue node i))
 )
 
 (rewrite
-  (ConstArgFoldExpr node (Arg i))
-  (ConstExpr node i)
+  (ConstArgFoldExpr node (Arg i) o)
+  (ConstArgFoldExpr node (Arg i) (ConstExpr node i))
+)
+
+(rule
+  ((ConstArgFoldExpr node (Sub x y) o))
+  ((ConstArgFoldExpr node x x) (ConstArgFoldExpr node y y))
 )
 
 (rewrite
-  (ConstArgFoldExpr node expr)
-  expr
-)
-
-(rewrite
-  (ConstArgFoldExpr node (Sub x y))
-  (ConstArgFoldExpr node (Sub (ConstArgFoldExpr node x) (ConstArgFoldExpr node y)))
+  (ConstArgFoldExpr node (Sub x y) o)
+  (ConstArgFoldExpr node (Sub x y) (Sub lhs rhs))
+  :when ((ConstArgFoldExpr node x lhs) (ConstArgFoldExpr node y rhs))
 )
 
 (rewrite
   (ConstArgFold node (ConsE i expr rest))
-  (ConsE i (ConstArgFoldExpr node expr) (ConstArgFold node rest))
+  (ConsE i o (ConstArgFold node rest))
+  :when ((ConstArgFoldExpr node expr o))
 )
 
 (rewrite
@@ -181,7 +184,7 @@
 
 (rule
   ((ConstArgFold node (ConsE i expr rest)))
-  ((ConstArgFoldExpr node expr))
+  ((ConstArgFoldExpr node expr expr))
 )
 
 (rule
