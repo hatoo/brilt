@@ -160,6 +160,7 @@ version = "0.1.0"
 dependencies = [
  "bimap",
  "bril-rs",
+ "clap",
  "egglog",
  "glob",
  "petgraph",
@@ -298,7 +299,7 @@ checksum = "675e35c02a51bb4d4618cb4885b3839ce6d1787c97b664474d9208d074742e20"
 [[package]]
 name = "egglog"
 version = "0.1.0"
-source = "git+https://github.com/egraphs-good/egglog.git#a4559d286450f3703980eda28855d0da27f29eb3"
+source = "git+https://github.com/hatoo/egglog.git?branch=fix-bool-tag#23611ba8112936aa968bb59b18c72f74c2031893"
 dependencies = [
  "clap",
  "egraph-serialize",

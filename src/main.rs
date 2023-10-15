@@ -1,7 +1,16 @@
 use brilt::{cfg::Cfg, restructure::StructureAnalysis, rvsdg::Rvsdg};
+use clap::Parser;
 use egglog::{EGraph, ExtractReport};
 
+#[derive(Parser)]
+struct Opt {
+    #[clap(long)]
+    debug: bool,
+}
+
 fn main() {
+    let args = Opt::parse();
+
     let mut program = bril_rs::load_program();
 
     for func in &mut program.functions {
@@ -11,6 +20,10 @@ fn main() {
             &func.args.iter().map(|a| a.name.clone()).collect::<Vec<_>>(),
             sa,
         );
+
+        if args.debug {
+            eprintln!("Pre RVSDG:\n{}", rvsdg);
+        }
 
         const SCHEMA: &str = include_str!("../schema.egg");
         let mut egraph = EGraph::default();
@@ -25,6 +38,10 @@ fn main() {
             ExtractReport::Best { termdag, term, .. } => Rvsdg::from_egglog(&term, &termdag.nodes),
             _ => panic!("No best term found"),
         };
+
+        if args.debug {
+            eprintln!("Post RVSDG:\n{}", out);
+        }
 
         func.instrs = out.to_bril(&func.args);
     }
