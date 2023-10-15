@@ -141,60 +141,62 @@
 
 ; const arg fold
 
-(function ConstArgFold (Node ListE) ListE)
+(sort E0)
+(function ConstArgFold (Node ListE ListE) E0)
 (sort E1)
 (function ConstArgFoldExpr (Node Expr Expr) E1)
 
 (rule
-  ((ConstArgFoldExpr node (Arg i) o))
+  ((ConstArgFoldExpr node orig (Arg i)))
   ((ConstValue node i))
 )
 
 (rewrite
-  (ConstArgFoldExpr node (Arg i) o)
-  (ConstArgFoldExpr node (Arg i) (ConstExpr node i))
+  (ConstArgFoldExpr node orig (Arg i))
+  (ConstArgFoldExpr node orig (ConstExpr node i))
 )
 
 (rule
-  ((ConstArgFoldExpr node (Sub x y) o))
+  ((ConstArgFoldExpr node orig (Sub x y)))
   ((ConstArgFoldExpr node x x) (ConstArgFoldExpr node y y))
 )
 
 (rewrite
-  (ConstArgFoldExpr node (Sub x y) o)
-  (ConstArgFoldExpr node (Sub x y) (Sub lhs rhs))
+  (ConstArgFoldExpr node orig (Sub x y))
+  (ConstArgFoldExpr node orig (Sub lhs rhs))
   :when ((ConstArgFoldExpr node x lhs) (ConstArgFoldExpr node y rhs))
 )
 
 (rewrite
-  (ConstArgFold node (ConsE i expr rest))
-  (ConsE i o (ConstArgFold node rest))
-  :when ((ConstArgFoldExpr node expr o))
-)
-
-(rewrite
-  (ConstArgFold node (NilE))
-  (NilE)
+  (ConstArgFold node orig (ConsE i expr rest))
+  (ConstArgFold node orig (ConsE i o orest))
+  :when ((ConstArgFoldExpr node expr o) (ConstArgFold node rest orest))
 )
 
 (rule
   ((Cons node (Cons (Simple exprs) rest)))
-  ((ConstArgFold node exprs))
+  ((ConstArgFold node exprs exprs))
 )
 
 (rule
-  ((ConstArgFold node (ConsE i expr rest)))
+  ((ConstArgFold node orig (ConsE i expr rest)))
   ((ConstArgFoldExpr node expr expr))
 )
 
 (rule
-  ((ConstArgFold node (ConsE i expr rest)))
-  ((ConstArgFold node rest))
+  ((ConstArgFold node orig (ConsE i expr rest)))
+  ((ConstArgFold node rest rest))
+)
+
+(rule
+  ((Cons node (Cons (Simple exprs) rest)))
+  ((ConstArgFold node exprs exprs))
 )
 
 (rewrite
   (Cons node (Cons (Simple exprs) rest))
-  (Cons node (Cons (Simple (ConstArgFold node exprs)) rest))
+  (Cons node (Cons (Simple opt) rest))
+  :when ((ConstArgFold node exprs opt))
 )
 
 ; branch optimize
