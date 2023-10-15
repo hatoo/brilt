@@ -7,7 +7,7 @@
   (Nop)
   (ConstInt i64 :cost 0)
   (ConstBool bool :cost 0)
-  (Arg i64 :cost 1)
+  (Arg i64 :cost 3)
   (Add Expr Expr)
   (Sub Expr Expr)
   (Mul Expr Expr)
@@ -64,6 +64,18 @@
 
 ; Start Rules
 
+; Structure
+
+(rewrite
+  (Cons (Simple node) (Cons (Linear list2) rest))
+  (Cons (Linear (Cons (Simple node) list2)) rest)
+)
+
+(rewrite
+  (Linear (Cons (Linear list) (Nil)))
+  (Linear list)
+)
+
 ; const fold
 
 (rewrite
@@ -71,140 +83,133 @@
   (ConstInt (- x y))
 )
 
+; nth expr
+
+(function nth (ListE i64) Expr)
+
+(rewrite
+  (nth (ConsE i expr rest) i)
+  expr
+)
+
+(rewrite
+  (nth (ConsE i expr rest) j)
+  (nth rest j)
+  :when ((< i j))
+)
+
+; const at
+
 (datatype Value
   (Int i64)
   (Boolean bool)
 )
 
 (function ConstValue (Node i64) Value)
+(function const-value-expr (Value) Expr)
+(function ConstExpr (Node i64) Expr)
 
 (rewrite
-  (Cons node (Cons (BranchIf i then else) rest))
-  (Cons node (Cons then rest))
-  :when ((= (ConstValue node i) (Boolean true)))
+  (const-value-expr (Int x))
+  (ConstInt x)
 )
+
+(rewrite
+  (const-value-expr (Boolean b))
+  (ConstBool b)
+)
+
+(rule
+  ((= v (ConstValue node i)))
+  ((union (ConstExpr node i) (const-value-expr v)))
+)
+
+(rule
+  ((ConstValue (Simple exprs) i))
+  ((nth exprs i))
+)
+
+(rule
+  ((ConstValue (Simple exprs) i) (= (ConstInt x) (nth exprs i)))
+  ((union (ConstValue (Simple exprs) i) (Int x)))
+)
+
+(rule
+  ((ConstValue (Simple exprs) i) (= (ConstBool b) (nth exprs i)))
+  ((union (ConstValue (Simple exprs) i) (Boolean b)))
+)
+
+; const arg fold
+
+(function ConstArgFold (Node ListE) ListE)
+(function ConstArgFoldExpr (Node Expr) Expr)
+
+(rule
+  ((ConstArgFoldExpr node (Arg i)))
+  ((ConstValue node i))
+)
+
+(rewrite
+  (ConstArgFoldExpr node (Arg i))
+  (ConstExpr node i)
+)
+
+(rule
+  ((ConstArgFoldExpr node (Sub x y)))
+  ((ConstArgFoldExpr node x) (ConstArgFoldExpr node y))
+)
+
+(rewrite
+  (ConstArgFoldExpr node (Sub x y))
+  (ConstArgFoldExpr node (Sub (ConstArgFoldExpr node x) (ConstArgFoldExpr node y)))
+)
+
+(rewrite
+  (ConstArgFold node (ConsE i expr rest))
+  (ConsE i (ConstArgFoldExpr node expr) (ConstArgFold node rest))
+)
+
+(rewrite
+  (ConstArgFold node (ConsE i e rest))
+  (ConsE i e (ConstArgFold node rest))
+)
+
+(rewrite
+  (ConstArgFold node (NilE))
+  (NilE)
+)
+
+(rule
+  ((Cons node (Cons (Simple exprs) rest)))
+  ((ConstArgFold node exprs))
+)
+
+(rule
+  ((ConstArgFold node (ConsE i expr rest)))
+  ((ConstArgFoldExpr node expr))
+)
+
+(rule
+  ((ConstArgFold node (ConsE i expr rest)))
+  ((ConstArgFold node rest))
+)
+
+(rewrite
+  (Cons node (Cons (Simple exprs) rest))
+  (Cons node (Cons (Simple (ConstArgFold node exprs)) rest))
+)
+
+; branch optimize
 
 (rule
   ((Cons node (Cons (BranchIf i then else) rest)))
   ((ConstValue node i))
 )
 
-(rewrite
-  (ConstValue (Simple (ConsE i (ConstBool b) rest)) i)
-  (Boolean b)
-)
-
-(rewrite
-  (ConstValue (Simple (ConsE i (ConstInt x) rest)) i)
-  (Int x)
-)
-
-(rewrite
-  (ConstValue (Simple (ConsE i _expr rest)) j)
-  (ConstValue (Simple rest) j)
-  :when ((< i j))
-)
-
-(relation Foreach (Node ListE))
-
 (rule
-  ((Foreach node (ConsE x (Arg i) rest)))
-  (
-    (ConstValue node i)
-    (Foreach node rest)
-  )
+  ((= p (Cons node (Cons (BranchIf i then else) rest))) (= (Boolean true) (ConstValue node i)))
+  ((union p (Cons node (Cons then rest))))
 )
-
-(rule
-  ((Cons node (Cons (Simple list) rest)))
-  ((Foreach node list))
-)
-
-(function rec_list (Node ListE) ListE)
-(function prev_and_expr (Node Expr) Expr)
-(function value-to-expr (Value) Expr)
-
-(rewrite
-  (value-to-expr (Int x))
-  (ConstInt x)
-)
-
-(rewrite
-  (value-to-expr (Boolean b))
-  (ConstBool b)
-)
-
-(rewrite
-  (rec_list node (ConsE i (Arg x) rest))
-  (ConsE i (value-to-expr (ConstValue node x)) (rec_list node rest))
-)
-
-(rewrite
-  (rec_list node (ConsE i expr rest))
-  (ConsE i (prev_and_expr node expr) (rec_list node rest))
-)
-
-(rewrite
-  (prev_and_expr prev (Arg i))
-  (value-to-expr (ConstValue prev i))
-)
-
-(rewrite
-  (prev_and_expr prev (Sub x y))
-  (Sub (prev_and_expr prev x) (prev_and_expr prev y))
-)
-
-(rewrite
-  (prev_and_expr node expr)
-  expr
-)
-
-(rewrite
-  (rec_list node (ConsE i expr rest))
-  (ConsE i expr (rec_list node rest))
-)
-
-(rewrite
-  (rec_list node (NilE))
-  (NilE)
-)
-
-(rewrite
-  (Cons node (Cons (Simple list) rest))
-  (Cons node (Cons (Simple (rec_list node list)) rest))
-)
-
-(rewrite
-  (Cons node (Cons (Linear (Cons (Simple list) tail)) rest))
-  (Cons node (Cons (Linear (Cons (Simple (rec_list node list)) tail)) rest))
-)
-
-; aw
-
-(relation no_prev_dep (ListE))
-
-(rule
-  ((no_prev_dep (ConsE i (Arg x) rest)))
-  ((delete (no_prev_dep (ConsE i (Arg x) rest))))
-)
-
-(rule
-  ((no_prev_dep (ConsE i _ rest)))
-  ((set (no_prev_dep (ConsE i _ rest)) ()))
-)
-
-(rule ((Simple expr))
-  ((no_prev_dep expr))
-)
-
-(rule ((= expr (Cons (Simple prev) (Cons (Simple succ) rest))) (no_prev_dep succ))
-  ((union expr (Cons (Simple succ) rest)))
-)
-
-(rule ((= node (Cons (Simple prev) (Cons (Linear (Cons (Simple succ) rest0)) rest))) (no_prev_dep succ))
-  ((union node (Cons (Linear (Cons (Simple succ) rest0)) rest)))
-)
-
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
