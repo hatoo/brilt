@@ -65,6 +65,13 @@
 
 ; Start Rules
 
+; peephole
+
+(rewrite
+  (Sub (ConstInt x) (ConstInt y))
+  (ConstInt (- x y))
+)
+
 ; structure
 
 (rewrite
@@ -89,6 +96,27 @@
   ((nth id i expr) (nth-for id rest))
 )
 
+; apply optimized nth
+
+(relation apply-nth (i64 ListE ListE))
+(rule
+  ((apply-nth id (ConsE i expr rest) (ConsE i expr2 rest2)))
+  ((apply-nth id rest rest2))
+)
+(rule
+  ((apply-nth id (ConsE i expr rest) (ConsE i expr rest)) (nth id i expr2) (apply-nth id rest rest2))
+  ((apply-nth id (ConsE i expr rest) (ConsE i expr2 rest2)))
+)
+(rule
+  ((Simple id exprs))
+  ((apply-nth id exprs exprs))
+)
+(rewrite
+  (Simple id exprs)
+  (Simple id exprs2)
+  :when ((apply-nth id exprs exprs2))
+)
+
 ; branch optimization
 
 (rewrite
@@ -101,6 +129,92 @@
   (Cons (Simple id exprs) (Cons (BranchIf id2 cond then else) rest))
   (Cons (Simple id exprs) (Cons else rest))
   :when ((nth id cond (ConstBool false)))
+)
+
+; const fold
+
+(datatype Const
+  (Int i64)
+  (Bool bool)
+)
+(relation nth-const (i64 i64 Const))
+(function const-expr (Const) Expr)
+(rule ((nth id i (ConstInt x))) ((nth-const id i (Int x))))
+(rule ((nth id i (ConstBool b))) ((nth-const id i (Bool b))))
+(rule ((Int i)) ((union (const-expr (Int i)) (ConstInt i))))
+(rule ((Bool b)) ((union (const-expr (Bool b)) (ConstBool b))))
+
+(rule
+  ((Cons (Simple id exprs) (Cons (Simple id2 exprs2) rest)) (nth-const id i c) (nth id2 j (Arg i)))
+  ((nth id2 j (const-expr c)))
+)
+
+; deep const fold
+(relation prev (i64 i64))
+(rule
+  ((Cons (Simple id exprs) (Cons (Simple id2 exprs2) rest)))
+  ((prev id2 id))
+)
+
+
+
+(relation opt-expr (i64 Expr Expr))
+(rule
+  ((nth id i expr))
+  ((opt-expr id expr expr))
+)
+(rule
+  ((opt-expr id expr (Arg i)) (prev id idprev) (nth-const idprev i c))
+  ((opt-expr id expr (const-expr c)))
+)
+(rule
+  ((opt-expr id expr (Sub x y)))
+  ((opt-expr id x x) (opt-expr id y y))
+)
+
+(rule
+  ((opt-expr id expr (Sub x y)) (opt-expr id x x2) (opt-expr id y y2))
+  ((opt-expr id expr (Sub x2 y2)))
+)
+
+; apply opt-expr
+
+(rule
+  ((nth id i expr) (opt-expr id expr expr2))
+  ((nth id i expr2))
+)
+(rule
+  ((nth id i (Sub x y)) (opt-expr id x x2) (opt-expr id y y2))
+  ((nth id i (Sub x2 y2)))
+)
+
+; no deps optimize
+
+(relation has-arg (Expr))
+(rule
+  ((Arg i))
+  ((has-arg (Arg i)))
+)
+(rule
+  ((Sub x y) (has-arg x))
+  ((has-arg (Sub x y)))
+)
+(rule
+  ((Sub x y) (has-arg y))
+  ((has-arg (Sub x y)))
+)
+
+(relation no-arg-exprs (ListE))
+(no-arg-exprs (NilE))
+(rule
+  ((ConsE i expr rest) (no-arg-exprs rest) (!= (Arg z) expr))
+  ((no-arg-exprs (ConsE i expr rest)))
+)
+
+(rewrite
+  (Cons (Simple id exprs) (Cons (Simple id2 exprs2) rest))
+  (Cons (Simple id2 exprs2) rest)
+  :when ((no-arg-exprs exprs2))
 )
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
@@ -123,22 +237,24 @@
 ;}
 
 ; cond is a constant. So egglog will optimize branches.
-; (let expr
-; (Linear 0 (Cons (Simple 1 (ConsE 0 (ConstBool true) (ConsE 1 (ConstInt 47) (NilE))))
-; (Cons (BranchIf 2 0 (Simple 3 (ConsE 0 (ConstInt 5) (ConsE 1 (Arg 1) (NilE))))
-; (Simple 4 (ConsE 0 (ConstInt 10) (ConsE 1 (ConstInt 2) (NilE))))
-; )
-; (Cons (Linear 5 (Cons (Simple 6 (ConsE 0 (Sub (Arg 1) (Arg 0)) (NilE)))
-; (Cons (StateFul 7 (NilS) (SomeS (Print 0)))
-; (Cons (StateFul 8 (NilS) (SomeS (Return (NoneI))))
-; (Nil)
-; ))))
-; (Nil)
-; ))))
-; )
+(let expr
+  (Linear 0 (Cons (Simple 1 (ConsE 0 (ConstBool true) (ConsE 1 (ConstInt 47) (NilE))))
+      (Cons (BranchIf 2 0 (Simple 3 (ConsE 0 (ConstInt 5) (ConsE 1 (Arg 1) (NilE))))
+          (Simple 4 (ConsE 0 (ConstInt 10) (ConsE 1 (ConstInt 2) (NilE))))
+        )
+        (Cons (Linear 5 (Cons (Simple 6 (ConsE 0 (Sub (Arg 1) (Arg 0)) (NilE)))
+              (Cons (StateFul 7 (NilS) (SomeS (Print 0)))
+                (Cons (StateFul 8 (NilS) (SomeS (Return (NoneI))))
+                  (Nil)
+                ))))
+          (Nil)
+        ))))
+)
 
 
-; (run 100)
+(run 100)
 
-; (print-size nth)
-; (extract expr)
+(print-function nth 36)
+(print-function nth-const 36)
+(print-function opt-expr 36)
+(extract expr)
