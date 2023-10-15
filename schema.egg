@@ -154,9 +154,9 @@
   (ConstExpr node i)
 )
 
-(rule
-  ((ConstArgFoldExpr node (Sub x y)))
-  ((ConstArgFoldExpr node x) (ConstArgFoldExpr node y))
+(rewrite
+  (ConstArgFoldExpr node expr)
+  expr
 )
 
 (rewrite
@@ -167,11 +167,6 @@
 (rewrite
   (ConstArgFold node (ConsE i expr rest))
   (ConsE i (ConstArgFoldExpr node expr) (ConstArgFold node rest))
-)
-
-(rewrite
-  (ConstArgFold node (ConsE i e rest))
-  (ConsE i e (ConstArgFold node rest))
 )
 
 (rewrite
