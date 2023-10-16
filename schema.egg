@@ -68,6 +68,11 @@
 ; peephole
 
 (rewrite
+  (Add (ConstInt x) (ConstInt y))
+  (ConstInt (+ x y))
+)
+
+(rewrite
   (Sub (ConstInt x) (ConstInt y))
   (ConstInt (- x y))
 )
@@ -188,24 +193,24 @@
 
 ; no deps optimize
 
-(relation has-arg (Expr))
+(relation no-arg (Expr))
 (rule
-  ((Arg i))
-  ((has-arg (Arg i)))
+  ((Sub x y) (no-arg x) (no-arg y))
+  ((no-arg (Sub x y)))
 )
 (rule
-  ((Sub x y) (has-arg x))
-  ((has-arg (Sub x y)))
+  ((ConstInt x))
+  ((no-arg (ConstInt x)))
 )
 (rule
-  ((Sub x y) (has-arg y))
-  ((has-arg (Sub x y)))
+  ((ConstBool b))
+  ((no-arg (ConstBool b)))
 )
 
 (relation no-arg-exprs (ListE))
 (no-arg-exprs (NilE))
 (rule
-  ((ConsE i expr rest) (no-arg-exprs rest) (!= (Arg z) expr))
+  ((ConsE i expr rest) (no-arg-exprs rest) (no-arg expr))
   ((no-arg-exprs (ConsE i expr rest)))
 )
 
@@ -214,7 +219,6 @@
   (Cons (Simple id2 exprs2) rest)
   :when ((no-arg-exprs exprs2))
 )
-
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
 ;  a: int = const 47;
@@ -236,21 +240,18 @@
 
 ; cond is a constant. So egglog will optimize branches.
 ; (let expr
-; (Linear 0 (Cons (Simple 1 (ConsE 0 (ConstBool true) (ConsE 1 (ConstInt 47) (NilE))))
-; (Cons (BranchIf 2 0 (Simple 3 (ConsE 0 (ConstInt 5) (ConsE 1 (Arg 1) (NilE))))
-; (Simple 4 (ConsE 0 (ConstInt 10) (ConsE 1 (ConstInt 2) (NilE))))
-; )
-; (Cons (Linear 5 (Cons (Simple 6 (ConsE 0 (Sub (Arg 1) (Arg 0)) (NilE)))
-; (Cons (StateFul 7 (NilS) (SomeS (Print 0)))
-; (Cons (StateFul 8 (NilS) (SomeS (Return (NoneI))))
+; (Linear 0 (Cons (Simple 1 (ConsE 0 (ConstBool true) (NilE)))
+; (Cons (Simple 2 (ConsE 0 (ConstInt 1) (NilE)))
+; (Cons (StateFul 3 (ConsS 0 (SArg 0) (NilS)) (SomeS (Print 0)))
+; (Cons (StateFul 4 (ConsS 0 (SArg 0) (NilS)) (SomeS (Return (NoneI))))
 ; (Nil)
-; ))))
-; (Nil)
-; ))))
+; )))))
 ; )
 
 
 ; (run 100)
+
+; (print-function no-arg-exprs 16)
 
 ; (extract expr)
 
