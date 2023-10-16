@@ -41,6 +41,9 @@ fn main() {
 
         if args.debug {
             eprintln!("Post RVSDG:\n{}", out);
+
+            let output = egraph.parse_and_run_program("(print-stats)").unwrap();
+            eprintln!("stats:\n{}", output[0]);
         }
 
         func.instrs = out.to_bril(&func.args);
