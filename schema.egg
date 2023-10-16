@@ -5,9 +5,9 @@
 
 (datatype Expr
   (Nop)
-  (ConstInt i64 :cost 0)
-  (ConstBool bool :cost 0)
-  (Arg i64 :cost 3)
+  (ConstInt i64)
+  (ConstBool bool)
+  (Arg i64)
   (Add Expr Expr)
   (Sub Expr Expr)
   (Mul Expr Expr)
