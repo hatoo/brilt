@@ -1,5 +1,7 @@
 # Brilt
 
+[![Doc Badge](https://img.shields.io/badge/doc-master-blue)](https://hatoo.github.io/brilt/brilt/)
+
 Work in progress [Bril](https://github.com/sampsyo/bril) to RVSDG library and optimizer.
 
 # Usage
