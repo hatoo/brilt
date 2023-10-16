@@ -184,6 +184,8 @@
   ((opt-expr id expr (Arg i)) (prev id idprev) (nth-const idprev i c))
   ((opt-expr id expr (const-expr c)))
 )
+
+;; deep walk
 (rule
   ((opt-expr id expr (Sub x y)))
   ((opt-expr id x x) (opt-expr id y y))
@@ -199,10 +201,6 @@
 (rule
   ((nth id i expr) (opt-expr id expr expr2))
   ((nth id i expr2))
-)
-(rule
-  ((nth id i (Sub x y)) (opt-expr id x x2) (opt-expr id y y2))
-  ((nth id i (Sub x2 y2)))
 )
 
 ; no deps optimize

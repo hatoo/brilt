@@ -213,28 +213,28 @@ pub enum Rvsdg {
     Simple {
         outputs: Vec<Expr>,
     },
-    // Original RVSDG has state edges but I've chosen to introduce a new node type that has single stateful operation
-    // and its order is preserved by the linear node to (hopefully) make the representation egglog friendly.
+    /// Original RVSDG has state edges but I've chosen to introduce a new node type that has single stateful operation
+    /// and its order is preserved by the linear node to (hopefully) make the representation egglog friendly.
     StateFul {
-        // one of the outputs is not a StateExpr::Arg if side_effect is None
+        /// one of the outputs is not a StateExpr::Arg if side_effect is None
         outputs: Vec<StateExpr>,
-        // Some() if the stateful operation hasn't return value
+        /// Some() if the stateful operation hasn't return value
         side_effect: Option<StateExpr>,
     },
     Linear(Vec<Rvsdg>),
-    // Gamma node
-    // cond_var is a bool
+    /// Gamma node
+    /// cond_var is a bool
     BranchIf {
         cond_index: usize,
-        // then else
+        /// then else
         branches: [Box<Rvsdg>; 2],
     },
-    // cond_var is an int
+    /// cond_var is an int
     BranchSwitch {
         cond_index: usize,
         branches: Vec<Rvsdg>,
     },
-    // Theta node
+    /// Theta node
     Loop {
         body: Box<Rvsdg>,
         cond_index: usize,
