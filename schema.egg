@@ -89,6 +89,20 @@
   (Cons (Linear id2 (Cons (Simple id exprs) exprs2)) rest)
 )
 
+(function append (List List) List)
+(rewrite
+  (append (Nil) list)
+  list
+)
+(rewrite
+  (append (Cons head tail) list)
+  (Cons head (append tail list))
+)
+(rewrite
+  (Cons (Linear id nodes) rest)
+  (append nodes rest)
+)
+
 ; nth expr
 (relation nth (i64 i64 Expr))
 (relation nth-for (i64 ListE))
