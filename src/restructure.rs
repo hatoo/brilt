@@ -108,7 +108,7 @@ impl StructureAnalysis {
                             if !codes.is_empty() {
                                 match new_linear.last_mut() {
                                     Some(StructureAnalysis::Block(last_codes)) => {
-                                        codes.extend(last_codes.iter().cloned());
+                                        last_codes.extend(codes.iter().cloned());
                                     }
                                     _ => new_linear.push(s.clone()),
                                 }
