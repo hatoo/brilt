@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     fmt::Display,
-    hash::{BuildHasher, Hash},
+    hash::Hash,
 };
 
 use bril_rs::{Argument, Code, ConstOps, EffectOps, Instruction, Literal, Type, ValueOps};
@@ -196,6 +196,12 @@ struct ExprCache {
 impl ExprCache {
     fn clear_local(&mut self) {
         self.local.clear();
+    }
+
+    fn remove(&mut self, arg: &Argument) {
+        // TODO: use bimap
+        self.local.retain(|_, v| v != arg);
+        self.global.retain(|_, v| v != arg);
     }
 
     fn unary(
@@ -973,6 +979,11 @@ impl Rvsdg {
                 cond_index,
                 outputs,
             } => {
+                // invalidate argument cache. those are reused in the loop!
+                for a in args {
+                    cache.remove(a);
+                }
+
                 let loop_head = builder.new_label(Some("loop_head"));
 
                 builder.add_code(Code::Label {
