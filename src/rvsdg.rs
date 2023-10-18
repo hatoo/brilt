@@ -1051,9 +1051,9 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
                 args: arguments,
                 dest,
                 funcs,
-                op,
+                op: ValueOps::Call,
                 ..
-            } if op == &ValueOps::Call => {
+            } => {
                 let expr = StateExpr::Call(
                     funcs[0].clone(),
                     arguments.iter().map(|v| args[v]).collect(),
@@ -1437,7 +1437,7 @@ mod test {
 
                 let rvsdg = match egraph.get_extract_report().as_ref().unwrap() {
                     ExtractReport::Best { termdag, term, .. } => {
-                        Rvsdg::from_egglog(&term, &termdag.nodes)
+                        Rvsdg::from_egglog(term, &termdag.nodes)
                     }
                     _ => panic!("No best term found"),
                 };

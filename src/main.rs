@@ -35,7 +35,7 @@ fn main() {
             .unwrap();
 
         let out = match egraph.get_extract_report().as_ref().unwrap() {
-            ExtractReport::Best { termdag, term, .. } => Rvsdg::from_egglog(&term, &termdag.nodes),
+            ExtractReport::Best { termdag, term, .. } => Rvsdg::from_egglog(term, &termdag.nodes),
             _ => panic!("No best term found"),
         };
 

@@ -162,9 +162,9 @@ impl StructureAnalysis {
 
                             new_block.push(vec![code]);
                         }
-                        Code::Instruction(Instruction::Value { op, .. })
-                            if op == ValueOps::Call =>
-                        {
+                        Code::Instruction(Instruction::Value {
+                            op: ValueOps::Call, ..
+                        }) => {
                             if !current_block.is_empty() {
                                 new_block.push(current_block);
                                 current_block = Vec::new();
