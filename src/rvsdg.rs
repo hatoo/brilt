@@ -1396,10 +1396,15 @@ mod test {
         for entry in glob("bril/examples/test/df/*.bril")
             .unwrap()
             .chain(glob("bril/examples/test/dom/*.bril").unwrap())
+            .chain(glob("bril/examples/test/tdce/*.bril").unwrap())
+            .chain(glob("bril/examples/test/lvn/*.bril").unwrap())
             .chain(glob("tests/*.bril").unwrap())
         {
             let path = entry.unwrap();
-            if path.ends_with("call.bril") || path.ends_with("rec.bril") {
+            if path.ends_with("call.bril")
+                || path.ends_with("rec.bril")
+                || path.ends_with("divide-by-zero.bril")
+            {
                 // TODO support call
                 continue;
             }
