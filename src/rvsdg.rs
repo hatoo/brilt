@@ -610,15 +610,17 @@ impl BrilBuilder {
     fn var_map(&mut self, from: &[Argument], to: &[Argument]) {
         for (f, t) in from.iter().zip(to.iter()) {
             // TODO: add phi node
-            self.add_code(Code::Instruction(Instruction::Value {
-                args: vec![f.name.clone()],
-                dest: t.name.clone(),
-                funcs: vec![],
-                labels: vec![],
-                op: ValueOps::Id,
-                // FIXME
-                op_type: t.arg_type.clone(),
-            }));
+            if f != t {
+                self.add_code(Code::Instruction(Instruction::Value {
+                    args: vec![f.name.clone()],
+                    dest: t.name.clone(),
+                    funcs: vec![],
+                    labels: vec![],
+                    op: ValueOps::Id,
+                    // FIXME
+                    op_type: t.arg_type.clone(),
+                }));
+            }
         }
     }
 }
