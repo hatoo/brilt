@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     fmt::Display,
-    hash::Hash,
+    hash::{BuildHasher, Hash},
 };
 
 use bril_rs::{Argument, Code, ConstOps, EffectOps, Instruction, Literal, Type, ValueOps};
@@ -185,6 +185,184 @@ impl Expr {
     }
 }
 
+#[derive(Default)]
+struct ExprCache {
+    // contain Arg expr
+    local: HashMap<Expr, Argument>,
+    // const
+    global: HashMap<Expr, Argument>,
+}
+
+impl ExprCache {
+    fn clear_local(&mut self) {
+        self.local.clear();
+    }
+
+    fn unary(
+        &mut self,
+        args: &[Argument],
+        builder: &mut BrilBuilder,
+        expr: &Expr,
+        x: &Expr,
+        op: ValueOps,
+    ) -> (Argument, bool) {
+        match self.get_impl(args, x, builder) {
+            (x, true) => {
+                let result = Argument {
+                    name: builder.new_var(),
+                    arg_type: x.arg_type,
+                };
+                builder.add_code(Code::Instruction(Instruction::Value {
+                    args: vec![x.name],
+                    dest: result.name.clone(),
+                    funcs: vec![],
+                    labels: vec![],
+                    op,
+                    op_type: result.arg_type.clone(),
+                }));
+                self.global.insert(expr.clone(), result.clone());
+                (result, true)
+            }
+            (x, false) => {
+                let result = Argument {
+                    name: builder.new_var(),
+                    arg_type: x.arg_type,
+                };
+                builder.add_code(Code::Instruction(Instruction::Value {
+                    args: vec![x.name],
+                    dest: result.name.clone(),
+                    funcs: vec![],
+                    labels: vec![],
+                    op,
+                    op_type: result.arg_type.clone(),
+                }));
+                self.local.insert(expr.clone(), result.clone());
+                (result, false)
+            }
+        }
+    }
+
+    fn binop(
+        &mut self,
+        args: &[Argument],
+        builder: &mut BrilBuilder,
+        expr: &Expr,
+        lhs: &Expr,
+        rhs: &Expr,
+        op: ValueOps,
+    ) -> (Argument, bool) {
+        match (
+            self.get_impl(args, lhs, builder),
+            self.get_impl(args, rhs, builder),
+        ) {
+            ((lhs, true), (rhs, true)) => {
+                let result = Argument {
+                    name: builder.new_var(),
+                    arg_type: lhs.arg_type,
+                };
+                builder.add_code(Code::Instruction(Instruction::Value {
+                    args: vec![lhs.name, rhs.name],
+                    dest: result.name.clone(),
+                    funcs: vec![],
+                    labels: vec![],
+                    op,
+                    op_type: result.arg_type.clone(),
+                }));
+                self.global.insert(expr.clone(), result.clone());
+                (result, true)
+            }
+            ((lhs, _), (rhs, _)) => {
+                let result = Argument {
+                    name: builder.new_var(),
+                    arg_type: lhs.arg_type,
+                };
+                builder.add_code(Code::Instruction(Instruction::Value {
+                    args: vec![lhs.name, rhs.name],
+                    dest: result.name.clone(),
+                    funcs: vec![],
+                    labels: vec![],
+                    op,
+                    op_type: result.arg_type.clone(),
+                }));
+                self.local.insert(expr.clone(), result.clone());
+                (result, false)
+            }
+        }
+    }
+
+    // (arg, is const)
+    fn get_impl(
+        &mut self,
+        args: &[Argument],
+        expr: &Expr,
+        builder: &mut BrilBuilder,
+    ) -> (Argument, bool) {
+        match expr {
+            Expr::Arg(n) => (args[*n].clone(), false),
+            Expr::Add(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Add),
+            Expr::Nop => (
+                Argument {
+                    name: "nop".to_string(),
+                    arg_type: Type::Bool,
+                },
+                true,
+            ),
+            Expr::ConstInt(i) => (
+                self.global
+                    .entry(expr.clone())
+                    .or_insert_with(|| {
+                        let name = builder.new_var();
+                        builder.add_code(Code::Instruction(Instruction::Constant {
+                            dest: name.clone(),
+                            op: ConstOps::Const,
+                            const_type: Type::Int,
+                            value: Literal::Int(*i),
+                        }));
+                        Argument {
+                            name,
+                            arg_type: Type::Int,
+                        }
+                    })
+                    .clone(),
+                true,
+            ),
+            Expr::ConstBool(b) => (
+                self.global
+                    .entry(expr.clone())
+                    .or_insert_with(|| {
+                        let name = builder.new_var();
+                        builder.add_code(Code::Instruction(Instruction::Constant {
+                            dest: name.clone(),
+                            op: ConstOps::Const,
+                            const_type: Type::Bool,
+                            value: Literal::Bool(*b),
+                        }));
+                        Argument {
+                            name,
+                            arg_type: Type::Bool,
+                        }
+                    })
+                    .clone(),
+                true,
+            ),
+            Expr::Sub(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Sub),
+            Expr::Mul(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Mul),
+            Expr::Div(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Div),
+            Expr::Eq(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Eq),
+            Expr::Lt(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Lt),
+            Expr::Gt(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Gt),
+            Expr::Le(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Le),
+            Expr::Ge(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Ge),
+            Expr::Not(x) => self.unary(args, builder, expr, x, ValueOps::Not),
+            Expr::And(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::And),
+            Expr::Or(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Or),
+        }
+    }
+    fn get(&mut self, args: &[Argument], expr: &Expr, builder: &mut BrilBuilder) -> Argument {
+        self.get_impl(args, expr, builder).0
+    }
+}
+
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -273,275 +451,8 @@ impl BrilBuilder {
         label
     }
 
-    fn add_expr(
-        &mut self,
-        args: &[Argument],
-        expr: &Expr,
-        cache: &mut HashMap<Expr, Argument>,
-    ) -> Argument {
-        if let Some(var) = cache.get(expr) {
-            var.clone()
-        } else {
-            // FIXME: use macro
-            let var: Argument = match expr {
-                Expr::Nop =>
-                // todo
-                {
-                    Argument {
-                        name: "nop".to_string(),
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::Arg(n) => return args[*n].clone(),
-                Expr::ConstInt(i) => {
-                    let dest = self.new_var();
-                    self.add_code(Code::Instruction(Instruction::Constant {
-                        dest: dest.clone(),
-                        op: ConstOps::Const,
-                        value: Literal::Int(*i),
-                        const_type: Type::Int,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Int,
-                    }
-                }
-                Expr::ConstBool(b) => {
-                    let dest = self.new_var();
-                    self.add_code(Code::Instruction(Instruction::Constant {
-                        dest: dest.clone(),
-                        op: ConstOps::Const,
-                        value: Literal::Bool(*b),
-                        const_type: Type::Bool,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::Add(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Add,
-                        op_type: Type::Int,
-                    }));
-
-                    Argument {
-                        name: dest,
-                        arg_type: lhs.arg_type,
-                    }
-                }
-                Expr::Sub(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Sub,
-                        op_type: Type::Int,
-                    }));
-
-                    Argument {
-                        name: dest,
-                        arg_type: lhs.arg_type,
-                    }
-                }
-                Expr::Mul(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Mul,
-                        op_type: Type::Int,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: lhs.arg_type,
-                    }
-                }
-                Expr::Div(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Div,
-                        op_type: Type::Int,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: lhs.arg_type,
-                    }
-                }
-                Expr::Eq(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Eq,
-                        op_type: Type::Bool,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::Lt(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Lt,
-                        op_type: Type::Bool,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::Gt(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Gt,
-                        op_type: Type::Bool,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::Le(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Le,
-                        op_type: Type::Bool,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::Ge(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Ge,
-                        op_type: Type::Bool,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::Not(arg) => {
-                    let arg = self.add_expr(args, arg, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![arg.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Not,
-                        op_type: Type::Bool,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::And(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::And,
-                        op_type: Type::Bool,
-                    }));
-
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-                Expr::Or(lhs, rhs) => {
-                    let lhs = self.add_expr(args, lhs, cache);
-                    let rhs = self.add_expr(args, rhs, cache);
-                    let dest = self.new_var();
-
-                    self.add_code(Code::Instruction(Instruction::Value {
-                        args: vec![lhs.name, rhs.name],
-                        dest: dest.clone(),
-                        funcs: vec![],
-                        labels: vec![],
-                        op: ValueOps::Or,
-                        op_type: Type::Bool,
-                    }));
-                    Argument {
-                        name: dest,
-                        arg_type: Type::Bool,
-                    }
-                }
-            };
-
-            cache.insert(expr.clone(), var.clone());
-            var
-        }
+    fn add_expr(&mut self, args: &[Argument], expr: &Expr, cache: &mut ExprCache) -> Argument {
+        cache.get(args, expr, self)
     }
 
     fn add_state_expr(
@@ -887,18 +798,23 @@ impl Rvsdg {
             label_counter: 0,
         };
 
-        self.build_bril(args, &mut builder);
+        self.build_bril(args, &mut builder, &mut ExprCache::default());
 
         builder.codes
     }
 
-    fn build_bril(&self, args: &[Argument], builder: &mut BrilBuilder) -> Vec<Argument> {
+    fn build_bril(
+        &self,
+        args: &[Argument],
+        builder: &mut BrilBuilder,
+        cache: &mut ExprCache,
+    ) -> Vec<Argument> {
+        cache.clear_local();
         match self {
             Rvsdg::Simple { outputs } => {
-                let mut cache = HashMap::new();
                 let mut outs: Vec<Argument> = outputs
                     .iter()
-                    .map(|v| builder.add_expr(args, v, &mut cache))
+                    .map(|v| builder.add_expr(args, v, cache))
                     .collect();
 
                 // make each outputs distinct
@@ -936,7 +852,7 @@ impl Rvsdg {
             Rvsdg::Linear(v) => {
                 let mut args = args.to_vec();
                 for rvsdg in v {
-                    args = rvsdg.build_bril(&args, builder);
+                    args = rvsdg.build_bril(&args, builder, cache);
                 }
                 args
             }
@@ -959,7 +875,7 @@ impl Rvsdg {
 
                 // then block
                 builder.add_code(Code::Label { label: then_label });
-                let then_outputs = branches[0].build_bril(args, builder);
+                let then_outputs = branches[0].build_bril(args, builder, cache);
                 builder.add_code(Code::Instruction(Instruction::Effect {
                     args: vec![],
                     funcs: vec![],
@@ -969,7 +885,7 @@ impl Rvsdg {
 
                 // else block
                 builder.add_code(Code::Label { label: else_label });
-                let else_outputs = branches[1].build_bril(args, builder);
+                let else_outputs = branches[1].build_bril(args, builder, cache);
 
                 builder.var_map(&else_outputs, &then_outputs);
                 builder.add_code(Code::Label { label: end_label });
@@ -988,7 +904,7 @@ impl Rvsdg {
                         Box::new(Expr::Arg(*cond_index)),
                         Box::new(Expr::ConstInt(0)),
                     ),
-                    &mut HashMap::new(),
+                    cache,
                 );
                 let then0 = builder.new_label(Some("then"));
                 let else0 = builder.new_label(Some("else"));
@@ -1001,7 +917,7 @@ impl Rvsdg {
                 }));
 
                 builder.add_code(Code::Label { label: then0 });
-                let outputs = branches[0].build_bril(args, builder);
+                let outputs = branches[0].build_bril(args, builder, cache);
 
                 let mut else_label = else0;
 
@@ -1018,7 +934,7 @@ impl Rvsdg {
                             Box::new(Expr::Arg(*cond_index)),
                             Box::new(Expr::ConstInt(i as i64)),
                         ),
-                        &mut HashMap::new(),
+                        cache,
                     );
 
                     builder.add_code(Code::Instruction(Instruction::Effect {
@@ -1029,7 +945,7 @@ impl Rvsdg {
                     }));
 
                     builder.add_code(Code::Label { label: then_label });
-                    let outs = b.build_bril(args, builder);
+                    let outs = b.build_bril(args, builder, cache);
 
                     builder.var_map(&outs, &outputs);
 
@@ -1063,7 +979,7 @@ impl Rvsdg {
                     label: loop_head.clone(),
                 });
 
-                let outs = body.build_bril(args, builder);
+                let outs = body.build_bril(args, builder, cache);
                 builder.var_map(&outs, args);
                 let loop_end = builder.new_label(Some("loop_end"));
                 builder.add_code(Code::Instruction(Instruction::Effect {
