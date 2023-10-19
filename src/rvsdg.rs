@@ -5,6 +5,7 @@ use std::{
     hash::Hash,
 };
 
+use bimap::BiMap;
 use bril_rs::{Argument, Code, ConstOps, EffectOps, Instruction, Literal, Type, ValueOps};
 use egglog::Term;
 
@@ -188,9 +189,9 @@ impl Expr {
 #[derive(Default)]
 struct ExprCache {
     // contain Arg expr
-    local: HashMap<Expr, Argument>,
+    local: BiMap<Expr, Argument>,
     // const
-    global: HashMap<Expr, Argument>,
+    global: BiMap<Expr, Argument>,
 }
 
 impl ExprCache {
@@ -199,9 +200,8 @@ impl ExprCache {
     }
 
     fn remove(&mut self, arg: &Argument) {
-        // TODO: use bimap
-        self.local.retain(|_, v| v != arg);
-        self.global.retain(|_, v| v != arg);
+        self.local.remove_by_right(arg);
+        self.global.remove_by_right(arg);
     }
 
     fn unary(
@@ -314,41 +314,41 @@ impl ExprCache {
                 true,
             ),
             Expr::ConstInt(i) => (
-                self.global
-                    .entry(expr.clone())
-                    .or_insert_with(|| {
-                        let name = builder.new_var();
-                        builder.add_code(Code::Instruction(Instruction::Constant {
-                            dest: name.clone(),
-                            op: ConstOps::Const,
-                            const_type: Type::Int,
-                            value: Literal::Int(*i),
-                        }));
-                        Argument {
-                            name,
-                            arg_type: Type::Int,
-                        }
-                    })
-                    .clone(),
+                if let Some(arg) = self.global.get_by_left(expr) {
+                    arg.clone()
+                } else {
+                    let var = Argument {
+                        name: builder.new_var(),
+                        arg_type: Type::Int,
+                    };
+                    builder.add_code(Code::Instruction(Instruction::Constant {
+                        dest: var.name.clone(),
+                        op: ConstOps::Const,
+                        const_type: Type::Int,
+                        value: Literal::Int(*i),
+                    }));
+                    self.global.insert(expr.clone(), var.clone());
+                    var
+                },
                 true,
             ),
             Expr::ConstBool(b) => (
-                self.global
-                    .entry(expr.clone())
-                    .or_insert_with(|| {
-                        let name = builder.new_var();
-                        builder.add_code(Code::Instruction(Instruction::Constant {
-                            dest: name.clone(),
-                            op: ConstOps::Const,
-                            const_type: Type::Bool,
-                            value: Literal::Bool(*b),
-                        }));
-                        Argument {
-                            name,
-                            arg_type: Type::Bool,
-                        }
-                    })
-                    .clone(),
+                if let Some(arg) = self.global.get_by_left(expr) {
+                    arg.clone()
+                } else {
+                    let var = Argument {
+                        name: builder.new_var(),
+                        arg_type: Type::Bool,
+                    };
+                    builder.add_code(Code::Instruction(Instruction::Constant {
+                        dest: var.name.clone(),
+                        op: ConstOps::Const,
+                        const_type: Type::Bool,
+                        value: Literal::Bool(*b),
+                    }));
+                    self.global.insert(expr.clone(), var.clone());
+                    var
+                },
                 true,
             ),
             Expr::Sub(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Sub),
