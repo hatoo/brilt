@@ -77,6 +77,11 @@
   (ConstInt (- x y))
 )
 
+(rewrite
+  (Mul (ConstInt x) (ConstInt y))
+  (ConstInt (* x y))
+)
+
 ; structure
 
 (rewrite
