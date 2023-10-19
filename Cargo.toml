@@ -7,7 +7,9 @@ edition = "2021"
 
 [dependencies]
 bimap = "0.6.3"
-"bril-rs" = { git = "https://github.com/sampsyo/bril.git" }
+"bril-rs" = { git = "https://github.com/sampsyo/bril.git", features = [
+    "memory",
+] }
 clap = { version = "4.4.6", features = ["derive"] }
 egglog = { git = "https://github.com/egraphs-good/egglog.git" }
 petgraph = "0.6.4"

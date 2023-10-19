@@ -3,6 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     hash::Hash,
+    usize,
 };
 
 use bimap::BiMap;
@@ -20,6 +21,10 @@ pub enum StateExpr {
     Print(usize),
     Return(Option<usize>),
     Call(String, Vec<usize>),
+    Alloc(usize, Type),
+    Free(usize),
+    Load(usize, Type),
+    Store(usize, usize),
 }
 fn to_list<T: Display>(v: &[T], cons: &str, nil: &str) -> String {
     if v.is_empty() {
@@ -80,7 +85,30 @@ impl Display for StateExpr {
             Self::Call(func, args) => {
                 write!(f, "(Call {} {})", func, to_list(args, "ConsI", "NilI"))
             }
+            Self::Alloc(size, ty) => {
+                write!(f, "(Alloc {} \"{:?}\")", size, ty)
+            }
+            Self::Free(ptr) => {
+                write!(f, "(Free {})", ptr)
+            }
+            Self::Load(ptr, ty) => {
+                write!(f, "(Load {} \"{:?}\")", ptr, ty)
+            }
+            Self::Store(ptr, data) => {
+                write!(f, "(Store {} {})", ptr, data)
+            }
         }
+    }
+}
+
+fn parse_type(s: &str) -> Type {
+    match s {
+        "Int" => Type::Int,
+        "Bool" => Type::Bool,
+        s if s.starts_with("Pointer") => Type::Pointer(Box::new(parse_type(
+            s.trim_start_matches("Pointer(").trim_end_matches(')'),
+        ))),
+        _ => unreachable!(),
     }
 }
 
@@ -107,6 +135,29 @@ impl StateExpr {
                     let n = term_i64(&nodes[tail[0]]) as usize;
                     Self::Arg(n)
                 }
+                "Alloc" => {
+                    let n = term_i64(&nodes[tail[0]]) as usize;
+                    let ty = term_string(&nodes[tail[1]]);
+
+                    Self::Alloc(n, parse_type(ty.as_str()))
+                }
+                "Free" => {
+                    let n = term_i64(&nodes[tail[0]]) as usize;
+
+                    Self::Free(n)
+                }
+                "Store" => {
+                    let ptr = term_i64(&nodes[tail[0]]) as usize;
+                    let data = term_i64(&nodes[tail[1]]) as usize;
+
+                    Self::Store(ptr, data)
+                }
+                "Load" => {
+                    let ptr = term_i64(&nodes[tail[0]]) as usize;
+                    let ty = term_string(&nodes[tail[1]]);
+
+                    Self::Load(ptr, parse_type(&ty))
+                }
                 _ => todo!("{}", head),
             },
             _ => unreachable!(),
@@ -124,6 +175,7 @@ pub enum Expr {
     ConstBool(bool),
     // ValueOps
     Add(Box<Expr>, Box<Expr>),
+    PtrAdd(Box<Expr>, Box<Expr>),
     Sub(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
     Div(Box<Expr>, Box<Expr>),
@@ -156,6 +208,10 @@ impl Expr {
                     Self::ConstBool(b)
                 }
                 "Add" => Self::Add(
+                    Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
+                    Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
+                ),
+                "PtrAdd" => Self::PtrAdd(
                     Box::new(Self::from_egglog(&nodes[tail[0]], nodes)),
                     Box::new(Self::from_egglog(&nodes[tail[1]], nodes)),
                 ),
@@ -306,6 +362,7 @@ impl ExprCache {
         match expr {
             Expr::Arg(n) => (args[*n].clone(), false),
             Expr::Add(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::Add),
+            Expr::PtrAdd(lhs, rhs) => self.binop(args, builder, expr, lhs, rhs, ValueOps::PtrAdd),
             Expr::Nop => (
                 Argument {
                     name: "nop".to_string(),
@@ -377,6 +434,7 @@ impl Display for Expr {
             Self::ConstInt(i) => write!(f, "(ConstInt {})", i),
             Self::ConstBool(b) => write!(f, "(ConstBool {})", if *b { "true" } else { "false" }),
             Self::Add(l, r) => write!(f, "(Add {} {})", l, r),
+            Self::PtrAdd(l, r) => write!(f, "(PtrAdd {} {})", l, r),
             Self::Sub(l, r) => write!(f, "(Sub {} {})", l, r),
             Self::Mul(l, r) => write!(f, "(Mul {} {})", l, r),
             Self::Div(l, r) => write!(f, "(Div {} {})", l, r),
@@ -521,6 +579,54 @@ impl BrilBuilder {
                     None
                 }
             }
+            StateExpr::Alloc(arg, ty) => {
+                let var = self.new_var();
+                self.add_code(Code::Instruction(Instruction::Value {
+                    args: vec![args[arg].name.clone()],
+                    dest: var.clone(),
+                    funcs: vec![],
+                    labels: vec![],
+                    op: ValueOps::Alloc,
+                    op_type: ty.clone(),
+                }));
+                Some(Argument {
+                    name: var,
+                    arg_type: ty,
+                })
+            }
+            StateExpr::Free(arg) => {
+                self.add_code(Code::Instruction(Instruction::Effect {
+                    args: vec![args[arg].name.clone()],
+                    funcs: vec![],
+                    labels: vec![],
+                    op: EffectOps::Free,
+                }));
+                None
+            }
+            StateExpr::Load(arg, ty) => {
+                let var = self.new_var();
+                self.add_code(Code::Instruction(Instruction::Value {
+                    args: vec![args[arg].name.clone()],
+                    dest: var.clone(),
+                    funcs: vec![],
+                    labels: vec![],
+                    op: ValueOps::Load,
+                    op_type: ty.clone(),
+                }));
+                Some(Argument {
+                    name: var,
+                    arg_type: ty,
+                })
+            }
+            StateExpr::Store(ptr, data) => {
+                self.add_code(Code::Instruction(Instruction::Effect {
+                    args: vec![args[ptr].name.clone(), args[data].name.clone()],
+                    funcs: vec![],
+                    labels: vec![],
+                    op: EffectOps::Store,
+                }));
+                None
+            }
         }
     }
 
@@ -552,6 +658,12 @@ fn term_i64(term: &Term) -> i64 {
 fn term_bool(term: &Term) -> bool {
     match term {
         Term::Lit(egglog::ast::Literal::Bool(b)) => *b,
+        _ => unreachable!(),
+    }
+}
+fn term_string(term: &Term) -> String {
+    match term {
+        Term::Lit(egglog::ast::Literal::String(s)) => s.as_str().to_string(),
         _ => unreachable!(),
     }
 }
@@ -1045,8 +1157,93 @@ fn to_rvsdg_state(code: &Code, args: &HashMap<String, usize>, outputs: &[String]
                         side_effect: Some(expr),
                     })
                 }
-                _ => None,
+                EffectOps::Store => {
+                    let ptr = args[&arguments[0]];
+                    let data = args[&arguments[1]];
+
+                    let expr = StateExpr::Store(ptr, data);
+
+                    Some(Rvsdg::StateFul {
+                        outputs: outputs.iter().map(|s| StateExpr::Arg(args[s])).collect(),
+                        side_effect: Some(expr),
+                    })
+                }
+                EffectOps::Free => {
+                    let ptr = args[&arguments[0]];
+
+                    let expr = StateExpr::Free(ptr);
+
+                    Some(Rvsdg::StateFul {
+                        outputs: outputs.iter().map(|s| StateExpr::Arg(args[s])).collect(),
+                        side_effect: Some(expr),
+                    })
+                }
+                EffectOps::Jump | EffectOps::Branch | EffectOps::Nop => None,
             },
+            Instruction::Value {
+                op: ValueOps::Alloc,
+                args: arguments,
+                op_type,
+                dest,
+                ..
+            } => {
+                let expr = StateExpr::Alloc(args[&arguments[0]], op_type.clone());
+
+                let mut used = false;
+
+                let mut outputs: Vec<StateExpr> = outputs
+                    .iter()
+                    .map(|s| {
+                        if s == dest {
+                            used = true;
+                            expr.clone()
+                        } else {
+                            StateExpr::Arg(args[s])
+                        }
+                    })
+                    .collect();
+
+                if !used {
+                    outputs.push(expr);
+                }
+
+                Some(Rvsdg::StateFul {
+                    outputs,
+                    side_effect: None,
+                })
+            }
+            Instruction::Value {
+                op: ValueOps::Load,
+                args: arguments,
+                op_type,
+                dest,
+                ..
+            } => {
+                let expr = StateExpr::Load(args[&arguments[0]], op_type.clone());
+
+                let mut used = false;
+
+                let mut outputs: Vec<StateExpr> = outputs
+                    .iter()
+                    .map(|s| {
+                        if s == dest {
+                            used = true;
+                            expr.clone()
+                        } else {
+                            StateExpr::Arg(args[s])
+                        }
+                    })
+                    .collect();
+
+                if !used {
+                    outputs.push(expr);
+                }
+
+                Some(Rvsdg::StateFul {
+                    outputs,
+                    side_effect: None,
+                })
+            }
             Instruction::Value {
                 args: arguments,
                 dest,
@@ -1154,6 +1351,11 @@ fn to_rvsdg_block(codes: &[Code], args: &HashMap<String, usize>, outputs: &[Stri
                         }
                         ValueOps::Id => args[0].clone(),
                         ValueOps::Call => unreachable!(),
+                        ValueOps::Alloc => unreachable!(),
+                        ValueOps::Load => unreachable!(),
+                        ValueOps::PtrAdd => {
+                            Expr::PtrAdd(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                        }
                     };
 
                     vars.insert(dest, expr);
