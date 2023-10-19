@@ -9,6 +9,7 @@
   (ConstBool bool)
   (Arg i64)
   (Add Expr Expr)
+  (PtrAdd Expr Expr)
   (Sub Expr Expr)
   (Mul Expr Expr)
   (Gt Expr Expr)
@@ -26,6 +27,10 @@
   (Call ListI)
   (Return OptionI)
   (Print i64)
+  (Alloc i64 String)
+  (Free i64)
+  (Load i64 String)
+  (Store i64 i64)
 )
 
 (datatype ListE

@@ -154,16 +154,16 @@ impl StructureAnalysis {
                 for code in codes {
                     let code = code.clone();
                     match code {
-                        Code::Instruction(Instruction::Effect { .. }) => {
-                            if !current_block.is_empty() {
-                                new_block.push(current_block);
-                                current_block = Vec::new();
-                            }
-
-                            new_block.push(vec![code]);
-                        }
-                        Code::Instruction(Instruction::Value {
+                        Code::Instruction(Instruction::Effect { .. })
+                        | Code::Instruction(Instruction::Value {
                             op: ValueOps::Call, ..
+                        })
+                        | Code::Instruction(Instruction::Value {
+                            op: ValueOps::Alloc,
+                            ..
+                        })
+                        | Code::Instruction(Instruction::Value {
+                            op: ValueOps::Load, ..
                         }) => {
                             if !current_block.is_empty() {
                                 new_block.push(current_block);
