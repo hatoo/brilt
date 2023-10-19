@@ -124,6 +124,15 @@
   ((nth-for id (ConsE i expr rest)))
   ((nth id i expr) (nth-for id rest))
 )
+(relation nth-for-state (i64 ListS))
+(rule
+  ((StateFul id exprs se))
+  ((nth-for-state id exprs))
+)
+(rule
+  ((nth-for-state id (ConsS i (SArg a) rest)))
+  ((nth id i (Arg a)) (nth-for-state id rest))
+)
 
 ; apply optimized nth
 
@@ -179,10 +188,19 @@
 )
 
 ; deep const fold
-(relation prev (i64 i64))
+(relation succ (i64 i64))
+(relation nodeid (Node i64))
 (rule
-  ((Cons (Simple id exprs) (Cons (Simple id2 exprs2) rest)))
-  ((prev id2 id))
+  ((= node (Simple id exprs)))
+  ((nodeid node id))
+)
+(rule
+  ((= node (StateFul id exprs se)))
+  ((nodeid node id))
+)
+(rule
+  ((Cons node0 (Cons node1 rest)) (nodeid node0 id0) (nodeid node1 id1))
+  ((succ id0 id1))
 )
 
 (relation opt-expr (i64 Expr Expr))
@@ -191,7 +209,7 @@
   ((opt-expr id expr expr))
 )
 (rule
-  ((opt-expr id expr (Arg i)) (prev id idprev) (nth-const idprev i c))
+  ((opt-expr id expr (Arg i)) (succ idprev id) (nth-const idprev i c))
   ((opt-expr id expr (const-expr c)))
 )
 
@@ -241,6 +259,35 @@
   (Cons (Simple id2 exprs2) rest)
   :when ((no-arg-exprs exprs2))
 )
+
+; use memory extention
+; WIP some analysis. no optimization yet
+
+; at node id's alloc, with offset
+(datatype Pointer (Ptr i64 i64))
+; at node id's nth arg is pointer
+(relation PArg (i64 i64 Pointer))
+
+(relation state-for (i64 ListS))
+(rule
+  ((StateFul id lists se))
+  ((state-for id lists))
+)
+(rule
+  ((state-for id (ConsS i (Alloc j ty) rest)))
+  ((PArg id i (Ptr id 0)))
+)
+(rule
+  ((state-for id (ConsS i head rest)))
+  ((state-for id rest))
+)
+
+(rule
+  ((succ id0 id1) (nth id1 i (Arg j)) (PArg id0 j ptr))
+  ((PArg id1 i ptr))
+)
+
+
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
 ;  a: int = const 47;
