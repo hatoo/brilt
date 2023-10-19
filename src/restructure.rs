@@ -607,9 +607,10 @@ impl RestructuredCfg {
     fn structure_rec(&self, start: &mut usize) -> StructureAnalysis {
         let mut linear = Vec::new();
         let mut last_exit_branch = false;
+        let mut loop_vec: Option<Vec<StructureAnalysis>> = None;
 
         loop {
-            if self.loop_edge.neighbors(*start).count() > 0
+            if (self.loop_edge.neighbors(*start).count() > 0 && loop_vec.is_none())
                 || (self
                     .graph
                     .neighbors_directed(*start, Direction::Incoming)
@@ -635,15 +636,14 @@ impl RestructuredCfg {
                 .neighbors_directed(*start, Direction::Incoming)
                 .count()
                 > 0;
+            let is_loop_tail = self
+                .loop_edge
+                .neighbors_directed(*start, Direction::Outgoing)
+                .count()
+                > 0;
             let s = if succs.len() == 1 {
-                if is_loop_entry {
-                    *start = succs[0];
-
-                    StructureAnalysis::Linear(vec![s0, self.structure_rec(start)])
-                } else {
-                    *start = succs[0];
-                    s0
-                }
+                *start = succs[0];
+                s0
             } else {
                 last_exit_branch = true;
                 let (cond_var, branch_labels) =
@@ -676,12 +676,15 @@ impl RestructuredCfg {
                     ),
                 ])
             };
-
-            if is_loop_entry {
-                linear.push(StructureAnalysis::Loop(Box::new(s)));
-                // now on loop exit
-                debug_assert!(self.loop_edge.neighbors(*start).count() == 1);
-                *start = self.graph.neighbors(*start).next().unwrap();
+            if is_loop_tail {
+                loop_vec.as_mut().unwrap().push(s);
+                linear.push(StructureAnalysis::Loop(Box::new(
+                    StructureAnalysis::Linear(loop_vec.take().unwrap()),
+                )));
+            } else if let Some(loop_vec) = loop_vec.as_mut() {
+                loop_vec.push(s);
+            } else if is_loop_entry {
+                loop_vec = Some(vec![s]);
             } else {
                 linear.push(s);
             }
