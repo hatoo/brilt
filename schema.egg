@@ -130,8 +130,12 @@
   ((nth-for-state id exprs))
 )
 (rule
+  ((nth-for-state id (ConsS i head rest)))
+  ((nth-for-state id rest))
+)
+(rule
   ((nth-for-state id (ConsS i (SArg a) rest)))
-  ((nth id i (Arg a)) (nth-for-state id rest))
+  ((nth id i (Arg a)))
 )
 
 ; apply optimized nth
