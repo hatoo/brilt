@@ -272,7 +272,7 @@
 )
 
 ; use memory extention
-; WIP some analysis. no optimization yet
+; currrently, replace `load` by const if it's known
 
 (datatype MemInst
   (MAlloc i64 String)
@@ -382,13 +382,8 @@
   (NilE)
 )
 (rule
-  ((Cons pre (Cons (StateFul id sexprs se) rest)) (node-meminst id (MLoad addr ty)) (nth-ptr preid addr ptr) (known-mem preid ptr c))
-  ((replace-load (const-expr c) sexprs))
-)
-(rewrite
-  (Cons pre (Cons (StateFul id sexprs se) rest))
-  (Cons pre (Cons (Simple id (replace-load (const-expr c) sexprs)) rest))
-  :when ((nodeid pre preid) (node-meminst id (MLoad addr ty)) (nth-ptr preid addr ptr) (known-mem preid ptr c))
+  ((= chunk (Cons pre (Cons (StateFul id sexprs se) rest))) (node-meminst id (MLoad addr ty)) (nth-ptr preid addr ptr) (known-mem id ptr c))
+  ((replace-load (const-expr c) sexprs) (union chunk (Cons pre (Cons (Simple id (replace-load (const-expr c) sexprs)) rest))))
 )
 
 
