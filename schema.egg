@@ -386,6 +386,27 @@
   ((replace-load (const-expr c) sexprs) (union chunk (Cons pre (Cons (Simple id (replace-load (const-expr c) sexprs)) rest))))
 )
 
+; Testing. Remove unneeded store
+(relation no-load (i64 List))
+
+(rule
+  ((node-meminst id (MAlloc size ty)))
+  ((no-load id (Nil)))
+)
+(rule
+  ((= chunk (Cons node rest)) (nodeid node id) (node-meminst id meminst) (!= (MLoad addr ty) meminst) (no-load i rest))
+  ((no-load i chunk))
+)
+(rule
+  ((= chunk (Cons (Simple id exprs) rest)) (no-load i rest))
+  ((no-load i chunk))
+)
+(rewrite
+  (Cons node (Cons suc rest))
+  (Cons node rest)
+  :when ((nodeid suc sucid) (node-meminst sucid (MStore i val)) (nodeid node pre) (nth-ptr pre i (Ptr orig offset)) (no-load orig rest))
+)
+
 
 ; https://github.com/sampsyo/bril/blob/main/examples/test/df/cond.bril
 ;@main {
