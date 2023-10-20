@@ -130,8 +130,12 @@
   ((nth-for-state id exprs))
 )
 (rule
+  ((nth-for-state id (ConsS i head rest)))
+  ((nth-for-state id rest))
+)
+(rule
   ((nth-for-state id (ConsS i (SArg a) rest)))
-  ((nth id i (Arg a)) (nth-for-state id rest))
+  ((nth id i (Arg a)))
 )
 
 ; apply optimized nth
@@ -218,12 +222,19 @@
   ((opt-expr id expr (Sub x y)))
   ((opt-expr id x x) (opt-expr id y y))
 )
-
 (rule
   ((opt-expr id expr (Sub x y)) (opt-expr id x x2) (opt-expr id y y2))
   ((opt-expr id expr (Sub x2 y2)))
 )
 
+(rule
+  ((opt-expr id expr (PtrAdd x y)))
+  ((opt-expr id x x) (opt-expr id y y))
+)
+(rule
+  ((opt-expr id expr (PtrAdd x y)) (opt-expr id x x2) (opt-expr id y y2))
+  ((opt-expr id expr (PtrAdd x2 y2)))
+)
 ; apply opt-expr
 
 (rule
@@ -261,12 +272,56 @@
 )
 
 ; use memory extention
-; WIP some analysis. no optimization yet
+; currrently, replace `load` by const if it's known
+
+(datatype MemInst
+  (MAlloc i64 String)
+  (MFree i64)
+  (MStore i64 i64)
+  (MLoad i64 String)
+  (MNop) ; Other state inst
+)
 
 ; at node id's alloc, with offset
 (datatype Pointer (Ptr i64 i64))
 ; at node id's nth arg is pointer
-(relation PArg (i64 i64 Pointer))
+(relation nth-ptr (i64 i64 Pointer))
+(relation node-meminst (i64 MemInst))
+
+(relation mem-inst (StateExpr MemInst))
+(rule
+  ((= se (Alloc size ty)))
+  ((mem-inst se (MAlloc size ty)))
+)
+(rule
+  ((= se (Free id)))
+  ((mem-inst se (MFree id)))
+)
+(rule
+  ((= se (Store id1 id2)))
+  ((mem-inst se (MStore id1 id2)))
+)
+(rule
+  ((= se (Load id ty)))
+  ((mem-inst se (MLoad id ty)))
+)
+(rule
+  ((= se (Call args)))
+  ((mem-inst se (MNop)))
+)
+(rule
+  ((= se (Return opt)))
+  ((mem-inst se (MNop)))
+)
+(rule
+  ((= se (Print id)))
+  ((mem-inst se (MNop)))
+)
+
+(rule
+  ((StateFul id sexprs (SomeS se)) (mem-inst se minst))
+  ((node-meminst id minst))
+)
 
 (relation state-for (i64 ListS))
 (rule
@@ -274,17 +329,61 @@
   ((state-for id lists))
 )
 (rule
-  ((state-for id (ConsS i (Alloc j ty) rest)))
-  ((PArg id i (Ptr id 0)))
-)
-(rule
   ((state-for id (ConsS i head rest)))
   ((state-for id rest))
 )
+(rule
+  ((state-for id (ConsS i (Alloc size ty) rest)))
+  ((nth-ptr id i (Ptr id 0)))
+)
+(rule
+  ((state-for id (ConsS i sexpr rest)) (mem-inst sexpr minst))
+  ((node-meminst id minst))
+)
 
 (rule
-  ((succ id0 id1) (nth id1 i (Arg j)) (PArg id0 j ptr))
-  ((PArg id1 i ptr))
+  ((succ pre suc) (nth-ptr pre i ptr) (nth suc j (Arg i)))
+  ((nth-ptr suc j ptr))
+)
+(rule
+  ((succ pre suc) (nth-ptr pre i (Ptr addr offset)) (nth suc j (PtrAdd (Arg i) (ConstInt dif))))
+  ((nth-ptr suc j (Ptr addr (+ offset dif))))
+)
+
+(relation known-mem (i64 Pointer Const))
+(rule
+  ((succ pre i) (node-meminst i (MStore x y)) (nth-ptr pre x ptr) (nth-const pre y val))
+  ((known-mem i ptr val))
+)
+(rule
+  ((succ pre i) (node-meminst i (MLoad x s)) (known-mem pre p c))
+  ((known-mem i p c))
+)
+(rule
+  ((succ pre i) (node-meminst i (MNop)) (known-mem pre p c))
+  ((known-mem i p c))
+)
+(rule
+  ((succ pre i) (known-mem pre p c) (Simple i exprs))
+  ((known-mem i p c))
+)
+
+(function replace-load (Expr ListS) ListE)
+(rewrite
+  (replace-load e (ConsS i (Load id ty) rest))
+  (ConsE i e (replace-load e rest))
+)
+(rewrite
+  (replace-load e (ConsS i (SArg a) rest))
+  (ConsE i (Arg a) (replace-load e rest))
+)
+(rewrite
+  (replace-load e (NilS))
+  (NilE)
+)
+(rule
+  ((= chunk (Cons pre (Cons (StateFul id sexprs se) rest))) (node-meminst id (MLoad addr ty)) (nth-ptr preid addr ptr) (known-mem id ptr c))
+  ((replace-load (const-expr c) sexprs) (union chunk (Cons pre (Cons (Simple id (replace-load (const-expr c) sexprs)) rest))))
 )
 
 

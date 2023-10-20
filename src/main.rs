@@ -34,13 +34,17 @@ fn main() {
             .parse_and_run_program(&format!("(let e {})\n(run 100)\n(extract e)", &rvsdg))
             .unwrap();
 
-        let out = match egraph.get_extract_report().as_ref().unwrap() {
-            ExtractReport::Best { termdag, term, .. } => Rvsdg::from_egglog(term, &termdag.nodes),
+        let (cost, out) = match egraph.get_extract_report().as_ref().unwrap() {
+            ExtractReport::Best {
+                termdag,
+                term,
+                cost,
+            } => (*cost, Rvsdg::from_egglog(term, &termdag.nodes)),
             _ => panic!("No best term found"),
         };
 
         if args.debug {
-            eprintln!("Post RVSDG:\n{}", out);
+            eprintln!("Post RVSDG (cost: {}):\n{}", cost, out);
 
             let output = egraph.parse_and_run_program("(print-stats)").unwrap();
             eprintln!("stats:\n{}", output[0]);
